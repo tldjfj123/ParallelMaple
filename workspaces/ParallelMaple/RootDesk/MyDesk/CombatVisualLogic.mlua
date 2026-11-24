@@ -7,6 +7,12 @@ script CombatVisualLogic extends Logic
 
 	property any ActiveLevelUps = nil
 
+	property any ActiveLevelUpSerials = nil
+
+	property any LastLevelUpAt = nil
+
+	property string LevelUpEffectRUID = "486a0ba11a6c474a81d13641876f8808"
+
 	property any ActiveDeathFades = nil
 
 	property any ActivePets = nil
@@ -40,6 +46,8 @@ script CombatVisualLogic extends Logic
 		self.ActiveProjectiles = {}
 		self.ActiveDrops = {}
 		self.ActiveLevelUps = {}
+		self.ActiveLevelUpSerials = {}
+		self.LastLevelUpAt = {}
 		self.ActiveDeathFades = {}
 		self.ActivePets = {}
 		self.ActivePetsMap = ""
@@ -121,51 +129,36 @@ script CombatVisualLogic extends Logic
 	@ExecSpace("ClientOnly")
 	method void PlayClassicLevelUpEffect(Entity targetEntity, boolean isJobAdvance)
 		if not isvalid(targetEntity) or not isvalid(targetEntity.CurrentMap) then return end
-		if not self.ActiveLevelUps then self.ActiveLevelUps = {} end
-		
-		local mapEnt = targetEntity.CurrentMap
-		local basePos = isvalid(targetEntity.TransformComponent) and targetEntity.TransformComponent.WorldPosition or Vector3(0, 0, 0)
-		
-		-- Layer 1: Classic MapleStory Golden Light Pillar rising from character feet!
-		local pillarEnt = _SpawnService:SpawnByModelId("model://fielddropitem", "LvUpPillar_" .. _UtilLogic:NewGuid(), Vector3(basePos.x, basePos.y + 1.55, 0), mapEnt)
-		if isvalid(pillarEnt) and isvalid(pillarEnt.SpriteRendererComponent) then
-			pillarEnt.SpriteRendererComponent.SortingLayer = "MapLayer7"
-			pillarEnt.SpriteRendererComponent.OrderInLayer = 200
-			pillarEnt.SpriteRendererComponent.SpriteRUID = "c716f121c49c4ba28c30ddd7cf7b7d51" -- Official 199x309 golden pillar!
+		if not self.ActiveLevelUpSerials then self.ActiveLevelUpSerials = {} end
+		if not self.LastLevelUpAt then self.LastLevelUpAt = {} end
+
+		local key = targetEntity.Id or "self"
+		local now = _UtilLogic.ElapsedSeconds
+		local lastAt = self.LastLevelUpAt[key] or -999
+		-- Debounce rapid multi-levelup triggers (e.g. shockwave multi-kill) so effects never stack/overlap!
+		if (not isJobAdvance) and (now - lastAt) < 0.45 then
+			return
 		end
-		
-		-- Layer 2: Official Classic MapleStory LEVEL UP! burst & floating banner sequence!
-		local burstEnt = _SpawnService:SpawnByModelId("model://fielddropitem", "LvUpBurst_" .. _UtilLogic:NewGuid(), Vector3(basePos.x, basePos.y + 1.05, 0), mapEnt)
-		if isvalid(burstEnt) and isvalid(burstEnt.SpriteRendererComponent) then
-			burstEnt.SpriteRendererComponent.SortingLayer = "MapLayer7"
-			burstEnt.SpriteRendererComponent.OrderInLayer = 210
-			burstEnt.SpriteRendererComponent.SpriteRUID = "08df7b1dcacf4661923f1679dbcb409a"
+		self.LastLevelUpAt[key] = now
+
+		-- Remove any still-playing level-up effect on this entity before starting a new one
+		local prevSerial = self.ActiveLevelUpSerials[key]
+		if prevSerial and prevSerial > 0 then
+			_EffectService:RemoveEffect(prevSerial)
+			self.ActiveLevelUpSerials[key] = 0
 		end
-		
-		local frames = {
-			{ t = 0.00, ruid = "08df7b1dcacf4661923f1679dbcb409a", yOff = 0.72, scale = 0.85 }, -- energy gather
-			{ t = 0.10, ruid = "b233c8c6f4c54fe097e6d026801ff1b9", yOff = 0.80, scale = 0.88 }, -- rising light 1
-			{ t = 0.20, ruid = "4cd6742718d34684a2467ee78b7fe8f0", yOff = 0.88, scale = 0.90 }, -- rising light 2
-			{ t = 0.30, ruid = "600388ddf6164e47ab05af84775d3b28", yOff = 0.96, scale = 0.92 }, -- classic LEVEL UP burst 1
-			{ t = 0.44, ruid = "dcf33b4d9ecb4d81a943f60de66295bd", yOff = 1.02, scale = 0.95 }, -- classic LEVEL UP bright halo
-			{ t = 0.58, ruid = "165760e9ef224e3483e3b20e1c18b852", yOff = 1.08, scale = 0.96 }, -- classic LEVEL UP glowing ring
-			{ t = 0.74, ruid = "91365655e5734f8e81d12af6fea355cb", yOff = 1.15, scale = 0.95 }, -- classic LEVEL UP ascent
-			{ t = 0.92, ruid = "aec9316522d3466fb833b5b0060cd59e", yOff = 1.38, scale = 0.95 }, -- crisp golden-green LEVEL UP banner!
-			{ t = 1.24, ruid = "8b8f390727eb49e6bd26253ed0cb19aa", yOff = 1.50, scale = 0.98 }, -- gleaming LEVEL UP glint!
-			{ t = 1.42, ruid = "aec9316522d3466fb833b5b0060cd59e", yOff = 1.58, scale = 0.95 }, -- lingering classic LEVEL UP!
+
+		local ruid = self.LevelUpEffectRUID
+		if not ruid or ruid == "" then
+			ruid = "486a0ba11a6c474a81d13641876f8808"
+		end
+		local opts = {
+			["SortingLayer"] = "MapLayer7",
+			["OrderInLayer"] = 220,
+			["Color"] = isJobAdvance and Color(1.0, 0.94, 0.50, 1.0) or Color(1.0, 1.0, 1.0, 1.0),
 		}
-		
-		table.insert(self.ActiveLevelUps, {
-			target = targetEntity,
-			mapName = mapEnt.Name,
-			pillar = pillarEnt,
-			burst = burstEnt,
-			frames = frames,
-			lastFrameIdx = 0,
-			elapsed = 0,
-			duration = 2.35,
-			isJobAdvance = isJobAdvance,
-		})
+		local serial = _EffectService:PlayEffectAttached(ruid, targetEntity, Vector3(0, 0.15, 0), 0, Vector3(1.0, 1.0, 1.0), false, opts)
+		self.ActiveLevelUpSerials[key] = serial or 0
 	end
 
 	@ExecSpace("ServerOnly")

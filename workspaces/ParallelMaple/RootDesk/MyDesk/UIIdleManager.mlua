@@ -292,13 +292,28 @@ script UIIdleManager extends Logic
 		end
 		
 		if winKey == "shop" then
+			if open then
+				if self.IsBossOpen then self:SetWindowOpen("boss", false) end
+				if self.IsEnhanceOpen then self:SetEnhanceOpen(false) end
+				if self.IsHuntMapOpen then self:SetWindowOpen("huntmap", false) end
+			end
 			self.IsShopOpen = open
 			if _UIShopController then _UIShopController:SetOpen(open) end
 			return
 		elseif winKey == "boss" then
+			if open then
+				if self.IsShopOpen then self:SetWindowOpen("shop", false) end
+				if self.IsEnhanceOpen then self:SetEnhanceOpen(false) end
+				if self.IsHuntMapOpen then self:SetWindowOpen("huntmap", false) end
+			end
 			self.IsBossOpen = open
 			if _UIBossController then _UIBossController:SetSelectOpen(open) end
 			return
+		end
+		if open and winKey == "huntmap" then
+			if self.IsShopOpen then self:SetWindowOpen("shop", false) end
+			if self.IsBossOpen then self:SetWindowOpen("boss", false) end
+			if self.IsEnhanceOpen then self:SetEnhanceOpen(false) end
 		end
 		
 		local path = nil
@@ -347,6 +362,11 @@ script UIIdleManager extends Logic
 
 	@ExecSpace("ClientOnly")
 	method void SetEnhanceOpen(boolean open)
+		if open then
+			if self.IsShopOpen then self:SetWindowOpen("shop", false) end
+			if self.IsBossOpen then self:SetWindowOpen("boss", false) end
+			if self.IsHuntMapOpen then self:SetWindowOpen("huntmap", false) end
+		end
 		self.IsEnhanceOpen = open
 		if _UIEnhanceController then
 			if open then
@@ -443,7 +463,7 @@ script UIIdleManager extends Logic
 				btnAuto.TextComponent.Text = autoOn and "AUTO\nON (F)" or "AUTO\nOFF (F)"
 			end
 			if isvalid(btnAuto.SpriteGUIRendererComponent) then
-				btnAuto.SpriteGUIRendererComponent.ImageRUID = autoOn and "331ad8a7ecba46139679e5ff92d7a284" or "0234b81e72f548f1a3f01c20be6b40aa"
+				btnAuto.SpriteGUIRendererComponent.Color = autoOn and Color(0.12, 0.62, 0.42, 1.0) or Color(0.20, 0.25, 0.34, 1.0)
 			end
 		end
 	end

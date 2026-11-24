@@ -232,7 +232,7 @@ script UIBossController extends Logic
 					else btn.TextComponent.Text = "입장하기 ▶" end
 				end
 				if isvalid(btn.SpriteGUIRendererComponent) then
-					btn.SpriteGUIRendererComponent.ImageRUID = canEnter and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+					btn.SpriteGUIRendererComponent.Color = canEnter and Color(0.16, 0.45, 0.88, 1.0) or Color(0.28, 0.33, 0.42, 1.0)
 				end
 			end
 		end

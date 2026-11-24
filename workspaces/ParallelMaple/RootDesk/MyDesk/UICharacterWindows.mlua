@@ -293,10 +293,10 @@ script UICharacterWindows extends Logic
 			local active = (self.InvenTab == tb[2])
 			if isvalid(ent) then
 				if isvalid(ent.SpriteGUIRendererComponent) then
-					ent.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+					ent.SpriteGUIRendererComponent.Color = active and Color(0.18, 0.48, 0.92, 1.0) or Color(0.22, 0.27, 0.37, 1.0)
 				end
 				if isvalid(ent.TextComponent) then
-					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.24, 0.28, 0.36, 1)
+					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.84, 0.88, 0.95, 1)
 					ent.TextComponent.UseOutLine = active
 				end
 			end
@@ -668,13 +668,13 @@ script UICharacterWindows extends Logic
 			local bEnt = _EntityService:GetEntityByPath(ST .. "/" .. r[2])
 			if isvalid(bEnt) then
 				if isvalid(bEnt.SpriteGUIRendererComponent) then
-					bEnt.SpriteGUIRendererComponent.ImageRUID = (apLeft > 0) and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+					bEnt.SpriteGUIRendererComponent.Color = (apLeft > 0) and Color(0.16, 0.45, 0.88, 1.0) or Color(0.26, 0.31, 0.40, 1.0)
 				end
 			end
 		end
 		local btnAutoAp = _EntityService:GetEntityByPath(ST .. "/BtnAutoAp")
 		if isvalid(btnAutoAp) and isvalid(btnAutoAp.SpriteGUIRendererComponent) then
-			btnAutoAp.SpriteGUIRendererComponent.ImageRUID = (apLeft > 0) and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+			btnAutoAp.SpriteGUIRendererComponent.Color = (apLeft > 0) and Color(0.16, 0.45, 0.88, 1.0) or Color(0.26, 0.31, 0.40, 1.0)
 		end
 		
 		local vals = {
@@ -743,10 +743,10 @@ script UICharacterWindows extends Logic
 			local active = (viewTier == t)
 			if isvalid(ent) then
 				if isvalid(ent.SpriteGUIRendererComponent) then
-					ent.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+					ent.SpriteGUIRendererComponent.Color = active and Color(0.18, 0.48, 0.92, 1.0) or Color(0.22, 0.27, 0.37, 1.0)
 				end
 				if isvalid(ent.TextComponent) then
-					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.28, 0.34, 0.42, 1)
+					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.84, 0.88, 0.95, 1)
 					ent.TextComponent.UseOutLine = active
 				end
 			end
