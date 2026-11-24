@@ -7,7 +7,7 @@
 
 ## 1. 작업 전 필수 확인 체크리스트
 
-1. **문서 우선 확인**: 구현할 티켓을 [docs/06-roadmap.md](docs/06-roadmap.md)에서 확인하고, 해당 기능의 상세 명세([docs/02-feature-specs.md](docs/02-feature-specs.md))와 스키마/RPC 계약([docs/05-architecture.md](docs/05-architecture.md))을 먼저 읽습니다.
+1. **문서 우선 확인**: 구현할 티켓을 [docs/07-requirements-index.md](docs/07-requirements-index.md)와 해당 개별 티켓 파일(`docs/tickets/REQ-*.md`)에서 먼저 읽고, 필요 시 상세 명세([docs/02-feature-specs.md](docs/02-feature-specs.md))와 스키마/RPC 계약([docs/05-architecture.md](docs/05-architecture.md))을 참조합니다.
 2. **티켓 스코프 준수**: 할당된 티켓의 **"수정 대상 파일"** 범위를 벗어나지 않습니다. 다른 티켓이 수정 중인 공용 파일을 임의로 리팩토링하지 않습니다.
 3. **한글 파일명 금지**: 새로 생성하는 스크립트, 맵, UI, 문서, 이미지 파일명은 반드시 **영문 ASCII**(`PascalCase` 또는 `kebab-case`)를 사용합니다. *(macOS NFD / Windows NFC Git 충돌 방지)*
 

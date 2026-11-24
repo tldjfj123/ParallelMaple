@@ -17,7 +17,9 @@ ParallelMaple/
 │   ├── 03-data-reference.md         # 마스터 데이터 & 검증된 MSW RUID 레퍼런스
 │   ├── 04-ui-spec.md                # 빅뱅 스타일 UI 화면별 명세 & 단축키
 │   ├── 05-architecture.md           # 코드 아키텍처, RPC 계약, DB 스키마, 모듈 분리 설계
-│   ├── 06-roadmap.md                # 마일스톤 & 충돌 없는 독립 티켓 작업 보드
+│   ├── 06-roadmap.md                # 마일스톤 개요
+│   ├── 07-requirements-index.md     # v1.0 요구사항 명세 인덱스 (26개 티켓 · 5대 분류)
+│   ├── tickets/                     # AI 원샷 구현용 개별 티켓 (REQ-ARCH-01 ~ REQ-QA-01)
 │   └── ui-references/               # 빅뱅 UI 레퍼런스 이미지
 └── workspaces/
     └── ParallelMaple/               # MSW Maker 로컬 워크스페이스 (그룹 월드: 패러렐메이플)
