@@ -1,0 +1,241 @@
+@Logic
+script UIBossController extends Logic
+
+	property boolean IsSelectOpen = false
+
+	property boolean IsInBossBattle = false
+
+	property any CurrentBossState = nil
+
+	property boolean BoundEvents = false
+
+	property number LocalTimerAccum = 0
+
+	@ExecSpace("ClientOnly")
+	method any GetBossCatalog()
+		return {
+			{ id = "zakum",    name = "노멀 자쿰",               reqLv = 50,  recPower = "1.5만",  maxDaily = 2, reward = "자쿰 코인 ×5 · 자쿰 투구 · 아쿠아틱/응축/실블링" },
+			{ id = "horntail", name = "노멀 혼테일",             reqLv = 120, recPower = "15만",   maxDaily = 2, reward = "혼테일 코인 ×8 · 혼목 · 이피아 · 데이모스 실드" },
+			{ id = "karuta",   name = "카오스 루타비스 (벨룸)",  reqLv = 150, recPower = "80만",   maxDaily = 1, reward = "루타비스 코인 ×10 · 카루타 4세트 (무기/모자/상/하)" },
+			{ id = "lotus",    name = "노멀 스우",               reqLv = 160, recPower = "350만",  maxDaily = 1, reward = "앱솔 코인 ×10 · 앱솔랩스 7부위 (3카 5앱!)" },
+			{ id = "lucid",    name = "노멀 루시드",             reqLv = 200, recPower = "1,500만",maxDaily = 1, reward = "아케인 코인 ×10 · 아케인셰이드 최종 종결 세트" },
+		}
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BindUIEvents()
+		if self.BoundEvents then return end
+		self.BoundEvents = true
+		
+		local SP = "/ui/BossUIGroup/BossSelectPanel"
+		local btnClose = _EntityService:GetEntityByPath(SP .. "/BtnClose")
+		if isvalid(btnClose) then
+			btnClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("boss", false) end)
+		end
+		local list = self:GetBossCatalog()
+		for i = 1, 5 do
+			local bossId = list[i].id
+			local btnEnter = _EntityService:GetEntityByPath(SP .. "/BossCard_" .. tostring(i) .. "/BtnEnter")
+			if isvalid(btnEnter) then
+				btnEnter:ConnectEvent(ButtonClickEvent, function()
+					if _BossLogic then
+						_BossLogic:RequestEnterBoss(bossId)
+						_UIIdleManager:SetWindowOpen("boss", false)
+					elseif _UIToast then
+						_UIToast:ShowMessage("보스전 서버 로직(REQ-BOSS-01) 연결 대기 중입니다.")
+					end
+				end)
+			end
+		end
+		
+		local HUD = "/ui/BossUIGroup/BossHudPanel"
+		local btnLeave = _EntityService:GetEntityByPath(HUD .. "/BtnLeaveBoss")
+		if isvalid(btnLeave) then
+			btnLeave:ConnectEvent(ButtonClickEvent, function()
+				local doLeave = function()
+					if _BossLogic then _BossLogic:RequestLeaveBoss() end
+					self:HideBossHud()
+				end
+				if _UIPopup and _UIPopup.Open then
+					_UIPopup:Open("보스전을 포기하고 헤네시스로 귀환할까요?\n(일일 입장 횟수는 차감되지 않습니다)", doLeave, nil)
+				else
+					doLeave()
+				end
+			end)
+		end
+		
+		local RM = "/ui/BossUIGroup/BossResultModal"
+		local btnReturn = _EntityService:GetEntityByPath(RM .. "/BtnReturnTown")
+		if isvalid(btnReturn) then
+			btnReturn:ConnectEvent(ButtonClickEvent, function()
+				local rm = _EntityService:GetEntityByPath(RM)
+				if isvalid(rm) then rm.Enable = false end
+				self:HideBossHud()
+				if _BossLogic then
+					_BossLogic:RequestLeaveBoss()
+				else
+					_PlayerDataLogic:RequestTeleportMap(_PlayerDataLogic.TownMapName)
+				end
+			end)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetSelectOpen(boolean open)
+		self.IsSelectOpen = open
+		local grp = _EntityService:GetEntityByPath("/ui/BossUIGroup")
+		local sp = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossSelectPanel")
+		if isvalid(sp) then sp.Enable = open end
+		if isvalid(grp) then
+			local rm = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossResultModal")
+			local rmOpen = isvalid(rm) and rm.Enable
+			grp.Enable = open or self.IsInBossBattle or rmOpen
+		end
+		if open then self:RefreshBossSelectWindow() end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void HideBossHud()
+		self.IsInBossBattle = false
+		self.CurrentBossState = nil
+		local hud = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossHudPanel")
+		if isvalid(hud) then hud.Enable = false end
+		local grp = _EntityService:GetEntityByPath("/ui/BossUIGroup")
+		local rm = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossResultModal")
+		if isvalid(grp) then
+			grp.Enable = self.IsSelectOpen or (isvalid(rm) and rm.Enable)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnBossStateUpdate(string stateJson)
+		local st = _HttpService:JSONDecode(stateJson)
+		if not st then return end
+		self.CurrentBossState = st
+		self.IsInBossBattle = (st.active == true)
+		local grp = _EntityService:GetEntityByPath("/ui/BossUIGroup")
+		local hud = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossHudPanel")
+		if isvalid(hud) then hud.Enable = self.IsInBossBattle end
+		if isvalid(grp) and self.IsInBossBattle then grp.Enable = true end
+		if self.IsInBossBattle then
+			self:RenderBossHud()
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RenderBossHud()
+		local st = self.CurrentBossState
+		if not st then return end
+		local HUD = "/ui/BossUIGroup/BossHudPanel"
+		local nm = _EntityService:GetEntityByPath(HUD .. "/BossNameText")
+		local hpFill = _EntityService:GetEntityByPath(HUD .. "/HpFill")
+		local hpTxt = _EntityService:GetEntityByPath(HUD .. "/HpText")
+		local tmTxt = _EntityService:GetEntityByPath(HUD .. "/TimerText")
+		local dcTxt = _EntityService:GetEntityByPath(HUD .. "/DeathCountText")
+		
+		local hp = math.max(0, st.hp or 0)
+		local maxHp = math.max(1, st.maxHp or 1)
+		local ratio = math.max(0.0, math.min(1.0, hp / maxHp))
+		if isvalid(nm) then nm.TextComponent.Text = "🔥 " .. (st.bossName or "BOSS") end
+		if isvalid(hpFill) and isvalid(hpFill.UITransformComponent) then
+			hpFill.UITransformComponent.UIScale = Vector3(ratio, 1, 1)
+		end
+		if isvalid(hpTxt) then
+			hpTxt.TextComponent.Text = string.format("%s / %s  (%.1f%%)",
+				_GameDataLogic:FormatNumber(hp), _GameDataLogic:FormatNumber(maxHp), ratio * 100.0)
+		end
+		local rem = math.max(0, math.floor(st.remainingSec or 600))
+		if isvalid(tmTxt) then
+			tmTxt.TextComponent.Text = string.format("⏱ %02d:%02d", math.floor(rem / 60), rem % 60)
+		end
+		if isvalid(dcTxt) then
+			local dc = math.max(0, math.min(5, st.deathCount or 5))
+			local hearts = {}
+			for i = 1, 5 do table.insert(hearts, (i <= dc) and "♥" or "♡") end
+			dcTxt.TextComponent.Text = "데스카운트 " .. table.concat(hearts, " ")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnTickBossHud(number delta)
+		if not self.IsInBossBattle or not self.CurrentBossState then return end
+		self.LocalTimerAccum = self.LocalTimerAccum + delta
+		if self.LocalTimerAccum >= 1.0 then
+			self.LocalTimerAccum = self.LocalTimerAccum - 1.0
+			self.CurrentBossState.remainingSec = math.max(0, (self.CurrentBossState.remainingSec or 0) - 1)
+			self:RenderBossHud()
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnBossResult(string resultJson)
+		local res = _HttpService:JSONDecode(resultJson)
+		if not res then return end
+		self.IsInBossBattle = false
+		local grp = _EntityService:GetEntityByPath("/ui/BossUIGroup")
+		local hud = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossHudPanel")
+		local rm = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossResultModal")
+		if isvalid(hud) then hud.Enable = false end
+		if isvalid(rm) then rm.Enable = true end
+		if isvalid(grp) then grp.Enable = true end
+		
+		local title = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossResultModal/ResultTitle")
+		local body = _EntityService:GetEntityByPath("/ui/BossUIGroup/BossResultModal/ResultBody")
+		if res.cleared then
+			if isvalid(title) then title.TextComponent.Text = "★ BOSS CLEAR! (" .. (res.bossName or "") .. ")" end
+			if isvalid(body) then
+				body.TextComponent.Text = string.format(
+					"클리어 시간: %d초\n획득 보상: %s\n(보스 코인 상점(B)에서 세트 장비로 교환할 수 있습니다!)",
+					res.elapsedSec or 0, res.rewardSummary or "보스 코인 & 큐브 획득"
+				)
+			end
+		else
+			if isvalid(title) then title.TextComponent.Text = "보스전 도전 실패 (" .. (res.bossName or "") .. ")" end
+			if isvalid(body) then
+				body.TextComponent.Text = string.format(
+					"사유: %s\n※ 실패 시 일일 입장 횟수는 차감되지 않습니다.\n장비 강화 후 다시 도전해 보세요!",
+					res.reason or "데스카운트 소진 / 시간 초과"
+				)
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshBossSelectWindow()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = (snap and snap.profile) or {}
+		local curLv = p.level or 1
+		local clears = p.bossDailyClears or {}
+		local SP = "/ui/BossUIGroup/BossSelectPanel"
+		local list = self:GetBossCatalog()
+		
+		for i = 1, 5 do
+			local b = list[i]
+			local card = SP .. "/BossCard_" .. tostring(i)
+			local nm = _EntityService:GetEntityByPath(card .. "/NameText")
+			local info = _EntityService:GetEntityByPath(card .. "/InfoText")
+			local rew = _EntityService:GetEntityByPath(card .. "/RewardText")
+			local cntTxt = _EntityService:GetEntityByPath(card .. "/CountText")
+			local btn = _EntityService:GetEntityByPath(card .. "/BtnEnter")
+			
+			local used = clears[b.id] or 0
+			local left = math.max(0, b.maxDaily - used)
+			local canEnter = (curLv >= b.reqLv) and (left > 0)
+			if isvalid(nm) then nm.TextComponent.Text = string.format("%d. %s  (Lv.%d+)", i, b.name, b.reqLv) end
+			if isvalid(info) then info.TextComponent.Text = string.format("권장 전투력 %s · 제한 10분 · 데카 5회", b.recPower) end
+			if isvalid(rew) then rew.TextComponent.Text = b.reward end
+			if isvalid(cntTxt) then cntTxt.TextComponent.Text = string.format("일일 %d / %d", left, b.maxDaily) end
+			if isvalid(btn) then
+				if isvalid(btn.TextComponent) then
+					if curLv < b.reqLv then btn.TextComponent.Text = "Lv." .. tostring(b.reqLv) .. " 필요"
+					elseif left <= 0 then btn.TextComponent.Text = "오늘 완료 ✓"
+					else btn.TextComponent.Text = "입장하기 ▶" end
+				end
+				if isvalid(btn.SpriteGUIRendererComponent) then
+					btn.SpriteGUIRendererComponent.ImageRUID = canEnter and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+				end
+			end
+		end
+	end
+
+end

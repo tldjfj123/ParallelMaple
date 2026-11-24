@@ -1,0 +1,249 @@
+@Logic
+script UIShopController extends Logic
+
+	property string CurrentTab = "general"
+
+	property integer ShopPage = 1
+
+	property any DisplayedEntries = nil
+
+	property boolean BoundEvents = false
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		self.DisplayedEntries = {}
+	end
+
+	@ExecSpace("ClientOnly")
+	method any GetCatalog(string tabKey)
+		if tabKey == "general" then
+			return {
+				{ id = "red_potion_10",       name = "빨간 포션 ×10",           desc = "HP 25% 회복 물약 10개",        cost = 500,     minTier = 0, icon = "873b727f30ea41efb179d6537009413e" },
+				{ id = "white_potion_10",     name = "하얀 포션 ×10",           desc = "HP 45% 회복 물약 10개",        cost = 2500,    minTier = 0, icon = "289c7bdcbdc8484ab7bad688b2519ca7" },
+				{ id = "blue_potion_10",      name = "파란 포션 ×10",           desc = "HP/MP 55% 회복 물약 10개",     cost = 6000,    minTier = 0, icon = "7e9b39b73f4945b1a8d77db6c99a6946" },
+				{ id = "power_elixir_10",     name = "파워 엘릭서 ×10",         desc = "HP/MP 100% 완전 회복 10개",    cost = 30000,   minTier = 0, icon = "48b4fbe44af54678bf86031d9ff5a1d4" },
+				{ id = "spell_trace_100",     name = "주문의 흔적 ×100",        desc = "주문서 작 강화 재료 100개",    cost = 50000,   minTier = 0, icon = "9855eaf9fde84db09ce2cfbcfa22072b" },
+				{ id = "cube_suspicious_10",  name = "수상한 큐브 ×10",         desc = "에픽 등급까지 잠재 재설정",    cost = 100000,  minTier = 0, icon = "361260af38c44fc5bb749adf55dd8d0f" },
+				{ id = "cube_red_1",          name = "레드 큐브 ×1",            desc = "레전드리 등급 도전 큐브",      cost = 300000,  minTier = 0, icon = "5ba62f870731481d94762fcf79ea513b" },
+				{ id = "cube_black_1",        name = "블랙 큐브 ×1",            desc = "BEFORE/AFTER 선택 큐브",       cost = 600000,  minTier = 0, icon = "3171e0bafe3549a1bda59aa3bc31931c" },
+				{ id = "ap_reset_scroll",     name = "AP 초기화 주문서 ×1",     desc = "STR/DEX/INT/LUK 스탯 초기화",  cost = 100000,  minTier = 0, icon = "9855eaf9fde84db09ce2cfbcfa22072b" },
+				{ id = "warrior_medallion_30",name = "전사의 메달리온 (Lv.30)", desc = "2차 전직 보조무기 (STR+3 공+2)", cost = 30000, minTier = 2, icon = "82cefdf25a4943d68064ad383f4e2b19" },
+				{ id = "knight_medallion_60", name = "기사의 메달리온 (Lv.60)", desc = "3차 전직 보조무기 (STR+6 공+5)", cost = 120000,minTier = 3, icon = "82cefdf25a4943d68064ad383f4e2b19" },
+				{ id = "silver_maple_emblem", name = "실버 엠블렘 (Lv.60)",     desc = "3차 전직 엠블렘 (STR+5 공+3)", cost = 150000,  minTier = 3, icon = "763ed51af22d447babd0e641c45922a0" },
+				{ id = "adventurer_medallion",name = "모험가의 메달리온 (Lv.100)",desc = "4차 전직 보조무기 (STR+10 공+8)",cost = 500000,minTier = 4, icon = "82cefdf25a4943d68064ad383f4e2b19" },
+				{ id = "gold_maple_emblem",   name = "골드 엠블렘 (Lv.100)",    desc = "4차 전직 엠블렘 (STR+10 공+6)",cost = 600000,  minTier = 4, icon = "763ed51af22d447babd0e641c45922a0" },
+			}
+		elseif tabKey == "pet" then
+			return {
+				{ id = "pet_slot_2", name = "2번 펫 추가 (퍼피)",         desc = "최대 2마리 동시 근거리 루팅",            cost = 500000,   icon = "fefcffdd98274b81bfbf2b66029a2de9", reqPet = 1 },
+				{ id = "pet_slot_3", name = "3번 펫 추가 (키티)",         desc = "최대 3마리 멀티펫 풀 스쿼드!",           cost = 2000000,  icon = "c8995be2cc2a48ae9b21291bc126ecb0", reqPet = 2 },
+				{ id = "magnet_pet", name = "★ 자석펫 업그레이드 (영구)", desc = "전 맵 광역 자동 흡입 (P 토글 영구 해금)", cost = 10000000, icon = "7477bb1b03794ad8b0ccaf16f1679dd6", isMagnet = true },
+			}
+		else
+			return {
+				{ id = "zakum_helmet",            name = "자쿰의 투구 (Lv.50)",        coin = "zakum",    coinName = "자쿰 코인",    cost = 10, icon = "thumbnail://a8f555328bca4745a881a93346b9be38" },
+				{ id = "aquatic_letter_eye",      name = "아쿠아틱 레터 눈장식",       coin = "zakum",    coinName = "자쿰 코인",    cost = 12, icon = "475369c5ce68432ea9127e1fe77d4942" },
+				{ id = "condensed_power_crystal", name = "응축된 힘의 결정석 (얼장)",  coin = "zakum",    coinName = "자쿰 코인",    cost = 15, icon = "475369c5ce68432ea9127e1fe77d4942" },
+				{ id = "silver_blossom_ring",     name = "실버블라썸 링 (Lv.110)",     coin = "zakum",    coinName = "자쿰 코인",    cost = 15, icon = "475369c5ce68432ea9127e1fe77d4942" },
+				{ id = "horntail_necklace",       name = "혼테일의 목걸이 (Lv.120)",   coin = "horntail", coinName = "혼테일 코인",  cost = 20, icon = "475369c5ce68432ea9127e1fe77d4942" },
+				{ id = "noble_ifia_ring",         name = "고귀한 이피아의 반지",       coin = "horntail", coinName = "혼테일 코인",  cost = 25, icon = "475369c5ce68432ea9127e1fe77d4942" },
+				{ id = "deimos_warrior_shield",   name = "데이모스 워리어 실드",       coin = "horntail", coinName = "혼테일 코인",  cost = 25, icon = "thumbnail://18824d3a9f234f24bcd5e9adf30dc474" },
+				{ id = "karuta_hat",              name = "하이네스 워리어헬름 (카루타)",coin = "karuta",  coinName = "루타비스 코인",cost = 30, icon = "thumbnail://c4cf8e607afc44bca67e805c2710fbd9" },
+				{ id = "karuta_top",              name = "이글아이 워리어아머 (카루타)",coin = "karuta",  coinName = "루타비스 코인",cost = 30, icon = "thumbnail://e61ecbba1cdf4575b1569b52b81d49fe" },
+				{ id = "karuta_pants",            name = "트릭스터 워리어팬츠 (카루타)",coin = "karuta",  coinName = "루타비스 코인",cost = 30, icon = "thumbnail://e61ecbba1cdf4575b1569b52b81d49fe" },
+				{ id = "fafnir_sword",            name = "파프니르 미스틸테인 (카루타)",coin = "karuta",  coinName = "루타비스 코인",cost = 50, icon = "thumbnail://535d6ec2b2e04a8d866050b3cf50a5f0" },
+				{ id = "absolab_hat",             name = "앱솔랩스 나이트헬름",        coin = "lotus",    coinName = "앱솔 코인",    cost = 40, icon = "thumbnail://4566a7ef3f4e46fca4c1751c499fec84" },
+				{ id = "absolab_gloves",          name = "앱솔랩스 나이트글러브",      coin = "lotus",    coinName = "앱솔 코인",    cost = 40, icon = "thumbnail://ad76497733c74828b4e6aaeff251c35d" },
+				{ id = "absolab_shoes",           name = "앱솔랩스 나이트슈즈",        coin = "lotus",    coinName = "앱솔 코인",    cost = 40, icon = "thumbnail://9885f9d8ee00456e842d0b19b1caae1f" },
+				{ id = "absolab_saber",           name = "앱솔랩스 세이버 (무기)",     coin = "lotus",    coinName = "앱솔 코인",    cost = 60, icon = "thumbnail://23f591e794a8487298d8e5ee9a3a7727" },
+				{ id = "arcane_hat",              name = "아케인셰이드 나이트햇",      coin = "lucid",    coinName = "아케인 코인",  cost = 50, icon = "thumbnail://927bc02eee4d4448bf82d288c7e83cbb" },
+				{ id = "arcane_gloves",           name = "아케인셰이드 나이트글러브",  coin = "lucid",    coinName = "아케인 코인",  cost = 50, icon = "thumbnail://dfd4da8447cd45219f57ba91d3ad642d" },
+				{ id = "arcane_shoes",            name = "아케인셰이드 나이트슈즈",    coin = "lucid",    coinName = "아케인 코인",  cost = 50, icon = "thumbnail://ce9c38b11f72410483fed1cbbe148480" },
+				{ id = "arcane_saber",            name = "아케인셰이드 세이버 (무기)", coin = "lucid",    coinName = "아케인 코인",  cost = 80, icon = "thumbnail://b27d8bb322cc4d689dd945281dd45dcd" },
+			}
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BindUIEvents()
+		if self.BoundEvents then return end
+		self.BoundEvents = true
+		
+		local P = "/ui/ShopUIGroup/MainPanel"
+		local btnClose = _EntityService:GetEntityByPath(P .. "/BtnClose")
+		if isvalid(btnClose) then
+			btnClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("shop", false) end)
+		end
+		for _, tb in ipairs({ { "TabGeneral", "general" }, { "TabPet", "pet" }, { "TabBoss", "boss" } }) do
+			local tabKey = tb[2]
+			local tEnt = _EntityService:GetEntityByPath(P .. "/" .. tb[1])
+			if isvalid(tEnt) then
+				tEnt:ConnectEvent(ButtonClickEvent, function()
+					self.CurrentTab = tabKey
+					self.ShopPage = 1
+					self:RefreshShopWindow()
+				end)
+			end
+		end
+		local btnPrev = _EntityService:GetEntityByPath(P .. "/BtnPrev")
+		if isvalid(btnPrev) then
+			btnPrev:ConnectEvent(ButtonClickEvent, function()
+				if self.ShopPage > 1 then self.ShopPage = self.ShopPage - 1; self:RefreshShopWindow() end
+			end)
+		end
+		local btnNext = _EntityService:GetEntityByPath(P .. "/BtnNext")
+		if isvalid(btnNext) then
+			btnNext:ConnectEvent(ButtonClickEvent, function()
+				self.ShopPage = self.ShopPage + 1; self:RefreshShopWindow()
+			end)
+		end
+		for i = 1, 8 do
+			local rowIdx = i
+			local btnBuy = _EntityService:GetEntityByPath(P .. "/ShopRow_" .. tostring(rowIdx) .. "/BtnBuy")
+			if isvalid(btnBuy) then
+				btnBuy:ConnectEvent(ButtonClickEvent, function() self:OnClickBuyRow(rowIdx) end)
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetOpen(boolean open)
+		local grp = _EntityService:GetEntityByPath("/ui/ShopUIGroup")
+		if isvalid(grp) then grp.Enable = open end
+		if open then self:RefreshShopWindow() end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickBuyRow(integer rowIdx)
+		local entry = self.DisplayedEntries and self.DisplayedEntries[rowIdx]
+		if not entry then return end
+		if self.CurrentTab == "general" then
+			if _ShopLogic then
+				_ShopLogic:RequestBuyShopItem(entry.id, 1)
+			elseif _UIToast then
+				_UIToast:ShowMessage("상점 서버 로직(REQ-SHOP-02) 연결 대기 중입니다.")
+			end
+		elseif self.CurrentTab == "pet" then
+			if _ShopLogic then
+				_ShopLogic:RequestBuyPetUpgrade(entry.id)
+			elseif _UIToast then
+				_UIToast:ShowMessage("펫 상점 서버 로직(REQ-SHOP-02) 연결 대기 중입니다.")
+			end
+		else
+			if _ShopLogic then
+				_ShopLogic:RequestExchangeBossItem(entry.id)
+			elseif _UIToast then
+				_UIToast:ShowMessage("보스 코인 상점 서버 로직(REQ-SHOP-02) 연결 대기 중입니다.")
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshShopWindow()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = (snap and snap.profile) or {}
+		local meso = p.meso or 0
+		local tier = p.jobTier or 0
+		local petCount = p.petCount or 1
+		local hasMagnet = (p.magnetPetUnlocked == true)
+		local bc = p.bossCoins or {}
+		local P = "/ui/ShopUIGroup/MainPanel"
+		
+		for _, tb in ipairs({ { "TabGeneral", "general" }, { "TabPet", "pet" }, { "TabBoss", "boss" } }) do
+			local ent = _EntityService:GetEntityByPath(P .. "/" .. tb[1])
+			local active = (self.CurrentTab == tb[2])
+			if isvalid(ent) then
+				if isvalid(ent.SpriteGUIRendererComponent) then
+					ent.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+				end
+				if isvalid(ent.TextComponent) then
+					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.24, 0.28, 0.36, 1)
+				end
+			end
+		end
+		
+		local curTxt = _EntityService:GetEntityByPath(P .. "/CurrencySummary")
+		if isvalid(curTxt) then
+			if self.CurrentTab == "boss" then
+				curTxt.TextComponent.Text = string.format("보스 코인  자쿰:%d | 혼테일:%d | 루타:%d | 앱솔:%d | 아케인:%d",
+					bc.zakum or 0, bc.horntail or 0, bc.karuta or 0, bc.lotus or 0, bc.lucid or 0)
+			elseif self.CurrentTab == "pet" then
+				curTxt.TextComponent.Text = string.format("보유 메소: %s  |  현재 펫: %d / 3마리  |  자석펫: %s",
+					_GameDataLogic:FormatComma(meso), petCount, hasMagnet and "해금 완료 ✓" or "미해금")
+			else
+				curTxt.TextComponent.Text = string.format("보유 메소: %s 메소  |  장비 인벤: %d / 60",
+					_GameDataLogic:FormatComma(meso), #(p.inventory or {}))
+			end
+		end
+		
+		local list = self:GetCatalog(self.CurrentTab)
+		local perPage = 8
+		local maxPage = math.max(1, math.ceil(#list / perPage))
+		if self.ShopPage > maxPage then self.ShopPage = maxPage end
+		local startIdx = (self.ShopPage - 1) * perPage + 1
+		self.DisplayedEntries = {}
+		
+		for i = 1, perPage do
+			local e = list[startIdx + i - 1]
+			self.DisplayedEntries[i] = e
+			local rowPath = P .. "/ShopRow_" .. tostring(i)
+			local row = _EntityService:GetEntityByPath(rowPath)
+			if isvalid(row) then
+				if e then
+					row.Enable = true
+					local ic = _EntityService:GetEntityByPath(rowPath .. "/Icon")
+					local nm = _EntityService:GetEntityByPath(rowPath .. "/NameText")
+					local ds = _EntityService:GetEntityByPath(rowPath .. "/DescText")
+					local pr = _EntityService:GetEntityByPath(rowPath .. "/PriceText")
+					local btn = _EntityService:GetEntityByPath(rowPath .. "/BtnBuy")
+					
+					if isvalid(ic) and isvalid(ic.SpriteGUIRendererComponent) then ic.SpriteGUIRendererComponent.ImageRUID = e.icon end
+					if isvalid(nm) then nm.TextComponent.Text = e.name end
+					if isvalid(ds) then ds.TextComponent.Text = e.desc or (e.coinName .. " 교환 장비") end
+					
+					local canBuy = true
+					local btnLabel = "구매"
+					if self.CurrentTab == "general" then
+						if isvalid(pr) then pr.TextComponent.Text = _GameDataLogic:FormatNumber(e.cost) .. " 메소" end
+						if (e.minTier or 0) > tier then
+							canBuy = false; btnLabel = tostring(e.minTier) .. "차 필요"
+						elseif meso < e.cost then
+							canBuy = false; btnLabel = "메소 부족"
+						end
+					elseif self.CurrentTab == "pet" then
+						if isvalid(pr) then pr.TextComponent.Text = _GameDataLogic:FormatNumber(e.cost) .. " 메소" end
+						if e.isMagnet then
+							if hasMagnet then canBuy = false; btnLabel = "보유 완료 ✓"
+							elseif meso < e.cost then canBuy = false; btnLabel = "메소 부족"
+							else btnLabel = "자석 해금" end
+						else
+							local targetCnt = (e.reqPet or 1) + 1
+							if petCount >= targetCnt then canBuy = false; btnLabel = "보유 완료 ✓"
+							elseif petCount < (e.reqPet or 1) then canBuy = false; btnLabel = tostring(e.reqPet) .. "펫 필요"
+							elseif meso < e.cost then canBuy = false; btnLabel = "메소 부족"
+							else btnLabel = "펫 구매" end
+						end
+					else
+						local haveCoin = bc[e.coin] or 0
+						if isvalid(pr) then pr.TextComponent.Text = string.format("%s %d개", e.coinName, e.cost) end
+						if haveCoin < e.cost then canBuy = false; btnLabel = "코인 부족" else btnLabel = "교환하기" end
+					end
+					
+					if isvalid(btn) then
+						if isvalid(btn.TextComponent) then btn.TextComponent.Text = btnLabel end
+						if isvalid(btn.SpriteGUIRendererComponent) then
+							btn.SpriteGUIRendererComponent.ImageRUID = canBuy and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+						end
+					end
+				else
+					row.Enable = false
+				end
+			end
+		end
+		
+		local pg = _EntityService:GetEntityByPath(P .. "/PageText")
+		if isvalid(pg) then pg.TextComponent.Text = tostring(self.ShopPage) .. " / " .. tostring(maxPage) end
+	end
+
+end

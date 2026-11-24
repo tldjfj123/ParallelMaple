@@ -1,0 +1,148 @@
+@Logic
+script UIOfflinePopup extends Logic
+
+	property any PendingReward = nil
+
+	property boolean IsModalOpen = false
+
+	property boolean Claiming = false
+
+	property boolean BoundEvents = false
+
+	@ExecSpace("ClientOnly")
+	method void BindUIEvents()
+		if self.BoundEvents then return end
+		self.BoundEvents = true
+		
+		local M = "/ui/OfflinePopupGroup/ModalPanel"
+		local btnClaim = _EntityService:GetEntityByPath(M .. "/BtnClaim")
+		if isvalid(btnClaim) then
+			btnClaim:ConnectEvent(ButtonClickEvent, function() self:OnClickClaim() end)
+		end
+		local btnClose = _EntityService:GetEntityByPath(M .. "/BtnClose")
+		if isvalid(btnClose) then
+			btnClose:ConnectEvent(ButtonClickEvent, function() self:OnEscapePressed() end)
+		end
+		local badge = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/PendingBadge")
+		if isvalid(badge) then
+			badge:ConnectEvent(ButtonClickEvent, function()
+				if self.PendingReward then
+					self:ShowModal(self.PendingReward)
+				end
+			end)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SyncFromSnapshot()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local pend = snap and snap.profile and snap.profile.pendingOfflineReward or nil
+		if pend then
+			self.PendingReward = pend
+			if not self.IsModalOpen then
+				self:UpdateBadgeVisibility(true)
+			end
+		else
+			self.PendingReward = nil
+			self.Claiming = false
+			self:HideAll()
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnShowOfflineRewardPopup(string rewardJson)
+		local r = _HttpService:JSONDecode(rewardJson)
+		if not r then return end
+		self.PendingReward = r
+		self.Claiming = false
+		self:ShowModal(r)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ShowModal(any r)
+		self.IsModalOpen = true
+		local grp = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup")
+		local modal = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/ModalPanel")
+		local badge = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/PendingBadge")
+		if isvalid(grp) then grp.Enable = true end
+		if isvalid(modal) then modal.Enable = true end
+		if isvalid(badge) then badge.Enable = false end
+		
+		local M = "/ui/OfflinePopupGroup/ModalPanel"
+		local sec = math.max(0, math.floor(r.elapsedSec or 0))
+		local hrs = math.floor(sec / 3600)
+		local mins = math.floor((sec % 3600) / 60)
+		local maxTag = (sec >= 12 * 3600) and "  [MAX]" or ""
+		
+		local elTxt = _EntityService:GetEntityByPath(M .. "/ElapsedText")
+		if isvalid(elTxt) then
+			elTxt.TextComponent.Text = string.format("오프라인 경과: %d시간 %d분 / 최대 12시간%s", hrs, mins, maxTag)
+		end
+		local mapTxt = _EntityService:GetEntityByPath(M .. "/MapKillsText")
+		if isvalid(mapTxt) then
+			mapTxt.TextComponent.Text = string.format("정산 사냥터: %s  |  예상 처치: %s마리 (80%% 효율)",
+				r.mapDisplayName or r.mapName or "헤네시스 사냥터 1", _GameDataLogic:FormatComma(r.kills or 0))
+		end
+		
+		local rExp = _EntityService:GetEntityByPath(M .. "/RewardExpText")
+		if isvalid(rExp) then rExp.TextComponent.Text = "경험치  +" .. _GameDataLogic:FormatComma(r.exp or 0) end
+		local rMeso = _EntityService:GetEntityByPath(M .. "/RewardMesoText")
+		if isvalid(rMeso) then rMeso.TextComponent.Text = "메소  +" .. _GameDataLogic:FormatComma(r.meso or 0) end
+		local rTrace = _EntityService:GetEntityByPath(M .. "/RewardTraceText")
+		if isvalid(rTrace) then rTrace.TextComponent.Text = "주문의 흔적  +" .. _GameDataLogic:FormatComma(r.trace or 0) end
+		local rCube = _EntityService:GetEntityByPath(M .. "/RewardCubeText")
+		if isvalid(rCube) then rCube.TextComponent.Text = "수상한 큐브  +" .. _GameDataLogic:FormatComma(r.suspiciousCube or 0) end
+		
+		local btnClaim = _EntityService:GetEntityByPath(M .. "/BtnClaim")
+		if isvalid(btnClaim) and isvalid(btnClaim.TextComponent) then
+			btnClaim.TextComponent.Text = "★ 보상 수령하기"
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickClaim()
+		if self.Claiming or not self.PendingReward then return end
+		self.Claiming = true
+		local btnClaim = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/ModalPanel/BtnClaim")
+		if isvalid(btnClaim) and isvalid(btnClaim.TextComponent) then
+			btnClaim.TextComponent.Text = "수령 중..."
+		end
+		if _OfflineRewardLogic then
+			_OfflineRewardLogic:RequestClaimOfflineReward()
+			_SoundService:PlaySound("acf66093cbbe421398da26a335f9616e", 0.85)
+			self:HideAll()
+		elseif _UIToast then
+			_UIToast:ShowMessage("오프라인 보상 서버 로직(REQ-SURV-02) 연결 대기 중입니다.")
+			self.Claiming = false
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnEscapePressed()
+		if not self.IsModalOpen then return end
+		self.IsModalOpen = false
+		local modal = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/ModalPanel")
+		if isvalid(modal) then modal.Enable = false end
+		self:UpdateBadgeVisibility(self.PendingReward ~= nil)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void UpdateBadgeVisibility(boolean show)
+		local grp = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup")
+		local badge = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/PendingBadge")
+		if isvalid(badge) then badge.Enable = show end
+		if isvalid(grp) then grp.Enable = show or self.IsModalOpen end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void HideAll()
+		self.IsModalOpen = false
+		local grp = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup")
+		local modal = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/ModalPanel")
+		local badge = _EntityService:GetEntityByPath("/ui/OfflinePopupGroup/PendingBadge")
+		if isvalid(modal) then modal.Enable = false end
+		if isvalid(badge) then badge.Enable = false end
+		if isvalid(grp) then grp.Enable = false end
+	end
+
+end

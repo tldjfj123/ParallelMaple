@@ -1,0 +1,806 @@
+@Logic
+script UICharacterWindows extends Logic
+
+	property string SelectedEqSlot = "Weapon"
+
+	property string InvenTab = "equip"
+
+	property integer SelectedInvIdx = 1
+
+	property integer InvenWinPage = 1
+
+	property integer SkillTabTier = 1
+
+	property any InvenEntries = nil
+
+	property boolean BoundEvents = false
+
+	property number LastApClickAt = 0
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		self.InvenEntries = {}
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BindUIEvents()
+		if self.BoundEvents then return end
+		self.BoundEvents = true
+		
+		-- =========================================================
+		-- 1. EquipWindow (E) — 24-Slot Modern MapleStory Grid
+		-- =========================================================
+		local EQ = "/ui/IdleHUDGroup/EquipWindow"
+		local eqClose = _EntityService:GetEntityByPath(EQ .. "/BtnClose")
+		if isvalid(eqClose) then eqClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("equip", false) end) end
+		for _, slotName in ipairs(_UIIdleManager:GetAllSlotOrder()) do
+			local sKey = slotName
+			local btn = _EntityService:GetEntityByPath(EQ .. "/EqSlot_" .. sKey)
+			if isvalid(btn) then
+				btn:ConnectEvent(ButtonClickEvent, function()
+					self.SelectedEqSlot = sKey
+					self:RefreshEquipWindow()
+				end)
+			end
+		end
+		local eqGoEnh = _EntityService:GetEntityByPath(EQ .. "/BtnGoEnhance")
+		if isvalid(eqGoEnh) then
+			eqGoEnh:ConnectEvent(ButtonClickEvent, function()
+				local snap = _PlayerDataLogic.ClientSnapshot
+				local uid = snap and snap.profile and snap.profile.equipped and snap.profile.equipped[self.SelectedEqSlot]
+				_UIIdleManager:OpenEnhanceTab("starforce", uid)
+			end)
+		end
+		local eqGoCube = _EntityService:GetEntityByPath(EQ .. "/BtnGoCube")
+		if isvalid(eqGoCube) then
+			eqGoCube:ConnectEvent(ButtonClickEvent, function()
+				local snap = _PlayerDataLogic.ClientSnapshot
+				local uid = snap and snap.profile and snap.profile.equipped and snap.profile.equipped[self.SelectedEqSlot]
+				_UIIdleManager:OpenEnhanceTab("cube", uid)
+			end)
+		end
+		
+		-- =========================================================
+		-- 2. InvenWindow (I) — 60-slot + Lock / Sell / Dismantle / Bulk
+		-- =========================================================
+		local INV = "/ui/IdleHUDGroup/InvenWindow"
+		local invClose = _EntityService:GetEntityByPath(INV .. "/BtnClose")
+		if isvalid(invClose) then invClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("inven", false) end) end
+		local bindInvTab = function(nm, key)
+			local t = _EntityService:GetEntityByPath(INV .. "/" .. nm)
+			if isvalid(t) then
+				t:ConnectEvent(ButtonClickEvent, function()
+					self.InvenTab = key; self.InvenWinPage = 1; self.SelectedInvIdx = 1
+					self:RefreshInvenWindow()
+				end)
+			end
+		end
+		bindInvTab("TabEquip", "equip")
+		bindInvTab("TabUse", "use")
+		bindInvTab("TabEtc", "etc")
+		for i = 1, 20 do
+			local idx = i
+			local btn = _EntityService:GetEntityByPath(INV .. "/InvSlot_" .. tostring(idx))
+			if isvalid(btn) then
+				btn:ConnectEvent(ButtonClickEvent, function()
+					self.SelectedInvIdx = idx
+					self:RefreshInvenWindow()
+				end)
+			end
+		end
+		local invAct = _EntityService:GetEntityByPath(INV .. "/BtnInvAction")
+		if isvalid(invAct) then invAct:ConnectEvent(ButtonClickEvent, function() self:OnClickInvenAction() end) end
+		local btnLock = _EntityService:GetEntityByPath(INV .. "/BtnLock")
+		if isvalid(btnLock) then btnLock:ConnectEvent(ButtonClickEvent, function() self:OnClickToggleLock() end) end
+		local btnSell = _EntityService:GetEntityByPath(INV .. "/BtnSell")
+		if isvalid(btnSell) then btnSell:ConnectEvent(ButtonClickEvent, function() self:OnClickSellEquip() end) end
+		local btnDis = _EntityService:GetEntityByPath(INV .. "/BtnDismantle")
+		if isvalid(btnDis) then btnDis:ConnectEvent(ButtonClickEvent, function() self:OnClickDismantleEquip() end) end
+		local btnBulk = _EntityService:GetEntityByPath(INV .. "/BtnBulkDismantle")
+		if isvalid(btnBulk) then btnBulk:ConnectEvent(ButtonClickEvent, function() self:OnClickBulkDismantle() end) end
+		local invPrev = _EntityService:GetEntityByPath(INV .. "/BtnPrev")
+		if isvalid(invPrev) then
+			invPrev:ConnectEvent(ButtonClickEvent, function()
+				if self.InvenWinPage > 1 then self.InvenWinPage = self.InvenWinPage - 1; self:RefreshInvenWindow() end
+			end)
+		end
+		local invNext = _EntityService:GetEntityByPath(INV .. "/BtnNext")
+		if isvalid(invNext) then
+			invNext:ConnectEvent(ButtonClickEvent, function()
+				self.InvenWinPage = self.InvenWinPage + 1; self:RefreshInvenWindow()
+			end)
+		end
+		
+		-- =========================================================
+		-- 3. StatWindow (S) — AP Allocation + Set Summary + Auto Potion
+		-- =========================================================
+		local ST = "/ui/IdleHUDGroup/StatWindow"
+		local stClose = _EntityService:GetEntityByPath(ST .. "/BtnClose")
+		if isvalid(stClose) then stClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("stat", false) end) end
+		local stAdv = _EntityService:GetEntityByPath(ST .. "/BtnJobAdvanceStat")
+		if isvalid(stAdv) then
+			stAdv:ConnectEvent(ButtonClickEvent, function()
+				local snap = _PlayerDataLogic.ClientSnapshot
+				local p = snap and snap.profile or nil
+				if p and _GameDataLogic:GetNextAdvanceTier(p.jobTier or 0, p.level or 1) then
+					_PlayerDataLogic:RequestAdvanceJob()
+				else
+					_UIIdleManager:SetWindowOpen("skill", true)
+				end
+			end)
+		end
+		for _, pair in ipairs({ { "BtnApStr", "str" }, { "BtnApDex", "dex" }, { "BtnApInt", "int" }, { "BtnApLuk", "luk" } }) do
+			local statKey = pair[2]
+			local b = _EntityService:GetEntityByPath(ST .. "/" .. pair[1])
+			if isvalid(b) then
+				b:ConnectEvent(ButtonClickEvent, function() self:OnClickAllocateAp(statKey, 1) end)
+			end
+		end
+		local btnAutoAp = _EntityService:GetEntityByPath(ST .. "/BtnAutoAp")
+		if isvalid(btnAutoAp) then
+			btnAutoAp:ConnectEvent(ButtonClickEvent, function() self:OnClickAutoAp() end)
+		end
+		local btnResetAp = _EntityService:GetEntityByPath(ST .. "/BtnResetAp")
+		if isvalid(btnResetAp) then
+			btnResetAp:ConnectEvent(ButtonClickEvent, function() self:OnClickResetAp() end)
+		end
+		local btnAutoPot = _EntityService:GetEntityByPath(ST .. "/BtnAutoPotionToggle")
+		if isvalid(btnAutoPot) then
+			btnAutoPot:ConnectEvent(ButtonClickEvent, function() self:OnClickToggleAutoPotion() end)
+		end
+		
+		-- =========================================================
+		-- 4. SkillWindow (K) — Hero I/II/III/IV Tabs
+		-- =========================================================
+		local SK = "/ui/IdleHUDGroup/SkillWindow"
+		local skClose = _EntityService:GetEntityByPath(SK .. "/BtnClose")
+		if isvalid(skClose) then skClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("skill", false) end) end
+		for _, tb in ipairs({ { "TabI", 1 }, { "TabII", 2 }, { "TabIII", 3 }, { "TabIV", 4 } }) do
+			local tierVal = tb[2]
+			local tEnt = _EntityService:GetEntityByPath(SK .. "/" .. tb[1])
+			if isvalid(tEnt) then
+				tEnt:ConnectEvent(ButtonClickEvent, function()
+					self.SkillTabTier = tierVal
+					self:RefreshSkillWindow()
+				end)
+			end
+		end
+		for i = 1, 3 do
+			local cIdx = i
+			local btnCast = _EntityService:GetEntityByPath(SK .. "/BtnCastSkill_" .. tostring(cIdx))
+			if isvalid(btnCast) then
+				btnCast:ConnectEvent(ButtonClickEvent, function()
+					local tInfo = _GameDataLogic:GetJobTierInfo(self.SkillTabTier)
+					local sid = tInfo and tInfo.skills and tInfo.skills[cIdx]
+					local lp = _UserService.LocalPlayer
+					if sid and isvalid(lp) and isvalid(lp.AutoHuntComponent) then
+						local dir = isvalid(lp.PlayerControllerComponent) and lp.PlayerControllerComponent.LookDirectionX or 1
+						lp.AutoHuntComponent:TryCastSkillById(sid, dir)
+					end
+				end)
+			end
+		end
+		local skAdv = _EntityService:GetEntityByPath(SK .. "/BtnAdvanceTier")
+		if isvalid(skAdv) then
+			skAdv:ConnectEvent(ButtonClickEvent, function() _PlayerDataLogic:RequestAdvanceJob() end)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshEquipWindow()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		if not snap or not snap.profile then return end
+		local equipped = snap.profile.equipped or {}
+		local EQ = "/ui/IdleHUDGroup/EquipWindow"
+		
+		local topUid = equipped["Top"]
+		local topItem = topUid and _UIIdleManager:FindClientItem(topUid) or nil
+		local topMaster = topItem and _GameDataLogic:GetItemMaster(topItem.itemId) or nil
+		local wearingOverall = (topMaster and topMaster.isOverall == true) or false
+		
+		for _, slotName in ipairs(_UIIdleManager:GetAllSlotOrder()) do
+			local uid = equipped[slotName]
+			local item = uid and _UIIdleManager:FindClientItem(uid) or nil
+			local base = EQ .. "/EqSlot_" .. slotName
+			local border = _EntityService:GetEntityByPath(base .. "/GradeBorder")
+			local icon = _EntityService:GetEntityByPath(base .. "/Icon")
+			local starTxt = _EntityService:GetEntityByPath(base .. "/StarText")
+			local slotTag = _EntityService:GetEntityByPath(base .. "/SlotTag")
+			local isSel = (self.SelectedEqSlot == slotName)
+			
+			if slotName == "Pants" and wearingOverall and not item then
+				if isvalid(border) then border.SpriteGUIRendererComponent.Color = Color(0.25, 0.25, 0.30, 0.45) end
+				if isvalid(icon) then icon.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 0) end
+				if isvalid(starTxt) then starTxt.TextComponent.Text = "한벌" end
+				if isvalid(slotTag) then slotTag.TextComponent.Text = "하의(X)" end
+			elseif item then
+				if isvalid(border) then border.SpriteGUIRendererComponent.Color = _UIIdleManager:GetGradeColor(item.potentialGrade or "Rare", isSel and 0.72 or 0.34) end
+				if isvalid(icon) then
+					icon.SpriteGUIRendererComponent.ImageRUID = _UIIdleManager:GetItemIcon(item.itemId)
+					icon.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 1)
+				end
+				if isvalid(starTxt) then starTxt.TextComponent.Text = (item.star and item.star > 0) and ("★" .. tostring(item.star)) or "" end
+				if isvalid(slotTag) then slotTag.TextComponent.Text = _UIIdleManager:GetSlotLabel(slotName) end
+			else
+				if isvalid(border) then border.SpriteGUIRendererComponent.Color = isSel and Color(0.95, 0.85, 0.25, 0.35) or Color(0.5, 0.5, 0.5, 0.08) end
+				if isvalid(icon) then icon.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 0) end
+				if isvalid(starTxt) then starTxt.TextComponent.Text = "" end
+				if isvalid(slotTag) then slotTag.TextComponent.Text = _UIIdleManager:GetSlotLabel(slotName) end
+			end
+		end
+		
+		local setSummaryEnt = _EntityService:GetEntityByPath(EQ .. "/SetSummaryText")
+		if isvalid(setSummaryEnt) and isvalid(setSummaryEnt.TextComponent) then
+			local activeSets = snap.stats and snap.stats.activeSets or nil
+			if activeSets and #activeSets > 0 then
+				local parts = {}
+				for _, st in ipairs(activeSets) do
+					table.insert(parts, string.format("%s %d/%d", st.name or st.setId, st.count or 0, st.maxCount or 0))
+				end
+				setSummaryEnt.TextComponent.Text = "활성 세트: " .. table.concat(parts, " · ")
+			else
+				setSummaryEnt.TextComponent.Text = "활성 세트: 없음 (펜살리르/카루타/앱솔/아케인/보장)"
+			end
+		end
+		
+		local selUid = equipped[self.SelectedEqSlot]
+		local selItem = selUid and _UIIdleManager:FindClientItem(selUid) or nil
+		local titleEnt = _EntityService:GetEntityByPath(EQ .. "/SelTitle")
+		local bodyEnt = _EntityService:GetEntityByPath(EQ .. "/SelBody")
+		if selItem then
+			local m = _GameDataLogic:GetItemMaster(selItem.itemId)
+			local sf = _GameDataLogic:GetStarforceBonus(selItem.itemId, selItem.star or 0)
+			local att = (m and m.baseAtt or 0) + (selItem.scrollBonus and selItem.scrollBonus.att or 0) + sf.att
+			local st = (m and (m.baseStr or m.baseMainStat) or 0) + (selItem.scrollBonus and selItem.scrollBonus.mainStat or 0) + sf.mainStat
+			local starStr = (selItem.star and selItem.star > 0) and ("★" .. tostring(selItem.star) .. " ") or ""
+			local lockStr = selItem.locked and "🔒 " or ""
+			local p1 = (selItem.potentials and selItem.potentials[1] and selItem.potentials[1].label) or "-"
+			local p2 = (selItem.potentials and selItem.potentials[2] and selItem.potentials[2].label) or ""
+			if isvalid(titleEnt) then
+				titleEnt.TextComponent.Text = lockStr .. starStr .. (m and m.name or selItem.itemId) .. " [" .. _GameDataLogic:GetGradeKorean(selItem.potentialGrade or "Rare") .. "]"
+			end
+			if isvalid(bodyEnt) then
+				bodyEnt.TextComponent.Text = string.format("Lv.%d | 공 +%d | STR +%d | 업횟 %d\n잠재: %s%s",
+					selItem.reqLevel or 1, att, st, selItem.upgradeRemaining or 0, p1, (p2 ~= "") and (" / " .. p2) or "")
+			end
+		else
+			local slotLabel = _UIIdleManager:GetSlotLabel(self.SelectedEqSlot)
+			if isvalid(titleEnt) then
+				titleEnt.TextComponent.Text = slotLabel .. ((self.SelectedEqSlot == "Pants" and wearingOverall) and " (한벌옷 착용 중)" or " (미장착)")
+			end
+			if isvalid(bodyEnt) then bodyEnt.TextComponent.Text = "인벤토리(I)에서 장비를 선택해 장착할 수 있습니다." end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshInvenWindow()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		if not snap or not snap.profile then return end
+		local p = snap.profile
+		local curLv = p.level or 1
+		local INV = "/ui/IdleHUDGroup/InvenWindow"
+		
+		local invCount = #(p.inventory or {})
+		local titleEnt = _EntityService:GetEntityByPath(INV .. "/Title")
+		if isvalid(titleEnt) and isvalid(titleEnt.TextComponent) then
+			titleEnt.TextComponent.Text = string.format("ITEM INVENTORY  (%d / 60)", invCount)
+		end
+		
+		for _, tb in ipairs({ { "TabEquip", "equip" }, { "TabUse", "use" }, { "TabEtc", "etc" } }) do
+			local ent = _EntityService:GetEntityByPath(INV .. "/" .. tb[1])
+			local active = (self.InvenTab == tb[2])
+			if isvalid(ent) then
+				if isvalid(ent.SpriteGUIRendererComponent) then
+					ent.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+				end
+				if isvalid(ent.TextComponent) then
+					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.24, 0.28, 0.36, 1)
+					ent.TextComponent.UseOutLine = active
+				end
+			end
+		end
+		
+		local entries = {}
+		if self.InvenTab == "equip" then
+			for _, it in ipairs(p.inventory or {}) do
+				local m = _GameDataLogic:GetItemMaster(it.itemId)
+				local eq = _UIIdleManager:IsClientItemEquipped(it.uid)
+				local reqLv = it.reqLevel or (m and m.reqLevel) or 1
+				local lvLocked = (curLv < reqLv)
+				local topTag = (it.locked and "🔒" or "") .. (eq and "[착]" or (it.isDestroyed and "[흔]" or ""))
+				local lvNote = lvLocked and (" [Lv." .. tostring(reqLv) .. " 필요!]") or (" (Lv." .. tostring(reqLv) .. ")")
+				table.insert(entries, {
+					kind = "equip", uid = it.uid, item = it, lvLocked = lvLocked,
+					name = (m and m.name or it.itemId) .. lvNote,
+					icon = _UIIdleManager:GetItemIcon(it.itemId),
+					grade = it.potentialGrade or "Rare",
+					topTag = topTag,
+					botTag = (it.star and it.star > 0) and ("★" .. tostring(it.star)) or "",
+					desc = string.format("%s | %s | ★%d | 남은업횟 %d",
+						_UIIdleManager:GetSlotLabel(it.slot or ""),
+						_GameDataLogic:GetGradeKorean(it.potentialGrade or "Rare"),
+						it.star or 0, it.upgradeRemaining or 0),
+				})
+			end
+		elseif self.InvenTab == "use" then
+			local pots = p.potions or {}
+			for _, pid in ipairs({ "red_potion", "white_potion", "blue_potion", "power_elixir" }) do
+				local pm = _GameDataLogic.Potions and _GameDataLogic.Potions[pid] or nil
+				local pCnt = pots[pid] or 0
+				if pm then
+					table.insert(entries, {
+						kind = "potion", potionId = pid, name = pm.name, icon = pm.iconRuid,
+						grade = (pid == "power_elixir") and "Unique" or "Rare",
+						topTag = "물약", botTag = tostring(pCnt),
+						desc = pm.name .. " (" .. tostring(pCnt) .. "개 보유)\n" .. pm.desc,
+					})
+				end
+			end
+			local c = p.cubes or {}
+			for _, cd in ipairs({
+				{ "suspicious", "수상한 큐브", "361260af38c44fc5bb749adf55dd8d0f", c.suspicious or 0, "에픽 등급까지 잠재능력 재설정" },
+				{ "master",     "장인의 큐브", "361260af38c44fc5bb749adf55dd8d0f", c.master or 0,     "유니크 등급까지 잠재능력 재설정" },
+				{ "meister",    "명장의 큐브", "361260af38c44fc5bb749adf55dd8d0f", c.meister or 0,    "레전드리 등급까지 잠재능력 재설정" },
+				{ "red",        "레드 큐브",   "5ba62f870731481d94762fcf79ea513b", c.red or 0,        "높은 등업 확률 · 레전드리 재설정" },
+				{ "black",      "블랙 큐브",   "3171e0bafe3549a1bda59aa3bc31931c", c.black or 0,      "BEFORE / AFTER 선택 가능 · 최고 등업률" },
+			}) do
+				table.insert(entries, {
+					kind = "cube", cubeId = cd[1], name = cd[2], icon = cd[3],
+					grade = (cd[1] == "black" and "Legendary") or (cd[1] == "red" and "Unique") or "Epic",
+					topTag = "", botTag = tostring(cd[4]),
+					desc = cd[2] .. " (" .. tostring(cd[4]) .. "개 보유)\n" .. cd[5],
+				})
+			end
+		else
+			local tr = p.spellTrace or 0
+			table.insert(entries, {
+				kind = "trace", name = "주문의 흔적", icon = "9855eaf9fde84db09ce2cfbcfa22072b",
+				grade = "Unique", topTag = "", botTag = _GameDataLogic:FormatNumber(tr),
+				desc = "주문의 흔적 (" .. _GameDataLogic:FormatNumber(tr) .. "개 보유)\n장비 강화(U)에서 100/70/30/15% 주문서 작에 사용",
+			})
+			local bc = p.bossCoins or {}
+			for _, bd in ipairs({
+				{ "zakum",    "자쿰 보스 코인 (하급)",    "Rare" },
+				{ "horntail", "혼테일 보스 코인 (중급)",  "Epic" },
+				{ "karuta",   "루타비스 보스 코인",       "Unique" },
+				{ "lotus",    "앱솔랩스 보스 코인",       "Unique" },
+				{ "lucid",    "아케인셰이드 보스 코인",   "Legendary" },
+			}) do
+				local cnt = bc[bd[1]] or 0
+				table.insert(entries, {
+					kind = "bosscoin", coinId = bd[1], name = bd[2],
+					icon = "02a489cccff24a139a6c3582a5871f58",
+					grade = bd[3], topTag = "코인", botTag = tostring(cnt),
+					desc = bd[2] .. " (" .. tostring(cnt) .. "개 보유)\n상점(B) → [보스 코인] 탭에서 장비 교환",
+				})
+			end
+			local etcs = p.etcLoot or {}
+			for _, eid in ipairs({ "mush_cap", "slime_bubble", "boar_tooth", "cursed_charm" }) do
+				local em = _GameDataLogic.EtcLoots and _GameDataLogic.EtcLoots[eid] or nil
+				local eCnt = etcs[eid] or 0
+				if em and eCnt > 0 then
+					table.insert(entries, {
+						kind = "etc", etcId = eid, name = em.name, icon = em.iconRuid,
+						grade = (eid == "cursed_charm") and "Epic" or "Rare",
+						topTag = "전리품", botTag = tostring(eCnt),
+						desc = em.name .. " (" .. tostring(eCnt) .. "개 보유)\n" .. em.desc,
+					})
+				end
+			end
+		end
+		
+		local maxPage = math.max(1, math.ceil(#entries / 20))
+		if self.InvenWinPage > maxPage then self.InvenWinPage = maxPage end
+		local startIdx = (self.InvenWinPage - 1) * 20 + 1
+		self.InvenEntries = {}
+		
+		for i = 1, 20 do
+			local ent = entries[startIdx + i - 1]
+			self.InvenEntries[i] = ent
+			local base = INV .. "/InvSlot_" .. tostring(i)
+			local border = _EntityService:GetEntityByPath(base .. "/GradeBorder")
+			local icon = _EntityService:GetEntityByPath(base .. "/Icon")
+			local topT = _EntityService:GetEntityByPath(base .. "/TopTag")
+			local botT = _EntityService:GetEntityByPath(base .. "/BotTag")
+			if ent then
+				local isSel = (i == self.SelectedInvIdx)
+				if isvalid(border) then
+					if ent.kind == "equip" and ent.item.isDestroyed then
+						border.SpriteGUIRendererComponent.Color = Color(0.95, 0.22, 0.22, isSel and 0.72 or 0.40)
+					else
+						border.SpriteGUIRendererComponent.Color = _UIIdleManager:GetGradeColor(ent.grade, isSel and 0.65 or 0.22)
+					end
+				end
+				if isvalid(icon) then
+					icon.SpriteGUIRendererComponent.ImageRUID = ent.icon
+					icon.SpriteGUIRendererComponent.Color = (ent.kind == "equip" and ent.item.isDestroyed) and Color(1.0, 0.55, 0.55, 0.75) or Color(1, 1, 1, 1)
+				end
+				if isvalid(topT) then topT.TextComponent.Text = ent.topTag end
+				if isvalid(botT) then botT.TextComponent.Text = ent.botTag end
+			else
+				if isvalid(border) then border.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 0) end
+				if isvalid(icon) then icon.SpriteGUIRendererComponent.Color = Color(1, 1, 1, 0) end
+				if isvalid(topT) then topT.TextComponent.Text = "" end
+				if isvalid(botT) then botT.TextComponent.Text = "" end
+			end
+		end
+		
+		local sel = self.InvenEntries[self.SelectedInvIdx]
+		local selInfo = _EntityService:GetEntityByPath(INV .. "/SelInfo")
+		local actBtn = _EntityService:GetEntityByPath(INV .. "/BtnInvAction")
+		local btnLock = _EntityService:GetEntityByPath(INV .. "/BtnLock")
+		local btnSell = _EntityService:GetEntityByPath(INV .. "/BtnSell")
+		local btnDis = _EntityService:GetEntityByPath(INV .. "/BtnDismantle")
+		local btnBulk = _EntityService:GetEntityByPath(INV .. "/BtnBulkDismantle")
+		
+		if isvalid(btnBulk) then btnBulk.Enable = (self.InvenTab == "equip") end
+		
+		if sel then
+			if isvalid(selInfo) and isvalid(selInfo.TextComponent) then
+				selInfo.TextComponent.Text = sel.name .. "\n" .. sel.desc
+				selInfo.TextComponent.FontColor = (sel.lvLocked) and Color(0.95, 0.28, 0.28, 1) or Color(0.14, 0.18, 0.26, 1)
+			end
+			if isvalid(actBtn) and isvalid(actBtn.TextComponent) then
+				if sel.kind == "equip" then
+					if sel.item.isDestroyed then actBtn.TextComponent.Text = "흔적 복구"
+					elseif _UIIdleManager:IsClientItemEquipped(sel.uid) then actBtn.TextComponent.Text = "★ 강화하기"
+					else actBtn.TextComponent.Text = "장착하기" end
+				elseif sel.kind == "potion" then actBtn.TextComponent.Text = "포션 사용"
+				elseif sel.kind == "cube" then actBtn.TextComponent.Text = "큐브 사용"
+				elseif sel.kind == "etc" then actBtn.TextComponent.Text = "일괄 판매"
+				elseif sel.kind == "bosscoin" then actBtn.TextComponent.Text = "코인 상점"
+				else actBtn.TextComponent.Text = "주문서 작"
+				end
+			end
+			local isEq = (sel.kind == "equip")
+			local canDispose = isEq and (not _UIIdleManager:IsClientItemEquipped(sel.uid)) and (not sel.item.locked) and (sel.item.pendingPotential == nil)
+			if isvalid(btnLock) then
+				btnLock.Enable = isEq
+				if isEq and isvalid(btnLock.TextComponent) then
+					btnLock.TextComponent.Text = sel.item.locked and "잠금해제" or "🔒 잠금"
+				end
+			end
+			if isvalid(btnSell) then
+				btnSell.Enable = canDispose
+				if isEq and isvalid(btnSell.TextComponent) then
+					local price = math.max(100, (sel.item.reqLevel or 1) * 150)
+					btnSell.TextComponent.Text = "판매 " .. _GameDataLogic:FormatNumber(price)
+				end
+			end
+			if isvalid(btnDis) then
+				btnDis.Enable = canDispose
+				if isEq and isvalid(btnDis.TextComponent) then
+					local trGain = math.max(10, math.floor((sel.item.reqLevel or 1) * 0.4))
+					btnDis.TextComponent.Text = "분해 +" .. tostring(trGain)
+				end
+			end
+		else
+			if isvalid(selInfo) then selInfo.TextComponent.Text = "아이템을 클릭해 정보를 확인하세요." end
+			if isvalid(btnLock) then btnLock.Enable = false end
+			if isvalid(btnSell) then btnSell.Enable = false end
+			if isvalid(btnDis) then btnDis.Enable = false end
+		end
+		
+		local mesoTxt = _EntityService:GetEntityByPath(INV .. "/MesoText")
+		if isvalid(mesoTxt) then mesoTxt.TextComponent.Text = _GameDataLogic:FormatNumber(p.meso or 0) end
+		local pageTxt = _EntityService:GetEntityByPath(INV .. "/PageText")
+		if isvalid(pageTxt) then pageTxt.TextComponent.Text = tostring(self.InvenWinPage) .. "/" .. tostring(maxPage) end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickInvenAction()
+		local sel = self.InvenEntries and self.InvenEntries[self.SelectedInvIdx]
+		if not sel then return end
+		if sel.kind == "equip" then
+			if sel.item.isDestroyed then
+				_UIIdleManager:OpenEnhanceTab("starforce", sel.uid)
+			elseif not _UIIdleManager:IsClientItemEquipped(sel.uid) then
+				_PlayerDataLogic:RequestEquipItem(sel.uid)
+			else
+				_UIIdleManager:OpenEnhanceTab("scroll", sel.uid)
+			end
+		elseif sel.kind == "potion" then _PlayerDataLogic:RequestUsePotion(sel.potionId)
+		elseif sel.kind == "cube" then _UIIdleManager:OpenEnhanceTab("cube", nil)
+		elseif sel.kind == "etc" then _PlayerDataLogic:RequestSellEtcLoot(sel.etcId)
+		elseif sel.kind == "bosscoin" then
+			if _UIShopController then _UIShopController.CurrentTab = "boss" end
+			_UIIdleManager:SetWindowOpen("shop", true)
+		elseif sel.kind == "trace" then _UIIdleManager:OpenEnhanceTab("scroll", nil)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickToggleLock()
+		local sel = self.InvenEntries and self.InvenEntries[self.SelectedInvIdx]
+		if not sel or sel.kind ~= "equip" then return end
+		if _InventoryLogic then
+			_InventoryLogic:RequestToggleLockItem(sel.uid)
+		elseif _UIToast then
+			_UIToast:ShowMessage("서버 로직(REQ-INVEN-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickSellEquip()
+		local sel = self.InvenEntries and self.InvenEntries[self.SelectedInvIdx]
+		if not sel or sel.kind ~= "equip" then return end
+		if _InventoryLogic then
+			_InventoryLogic:RequestSellEquip(sel.uid)
+		elseif _UIToast then
+			_UIToast:ShowMessage("서버 로직(REQ-INVEN-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickDismantleEquip()
+		local sel = self.InvenEntries and self.InvenEntries[self.SelectedInvIdx]
+		if not sel or sel.kind ~= "equip" then return end
+		if _InventoryLogic then
+			_InventoryLogic:RequestDismantleEquip(sel.uid)
+		elseif _UIToast then
+			_UIToast:ShowMessage("서버 로직(REQ-INVEN-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickBulkDismantle()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = snap and snap.profile or nil
+		if not p then return end
+		local maxLv = p.level or 1
+		local cnt = 0
+		local traceEst = 0
+		for _, it in ipairs(p.inventory or {}) do
+			if not _UIIdleManager:IsClientItemEquipped(it.uid)
+				and not it.locked
+				and not it.isDestroyed
+				and (it.star or 0) == 0
+				and (it.potentialGrade or "Rare") == "Rare"
+				and it.pendingPotential == nil
+				and (it.reqLevel or 1) <= maxLv then
+				cnt = cnt + 1
+				traceEst = traceEst + math.max(10, math.floor((it.reqLevel or 1) * 0.4))
+			end
+		end
+		if cnt == 0 then
+			if _UIToast then _UIToast:ShowMessage("일괄 분해할 하위 장비(미잠금·노강·레어)가 없습니다.") end
+			return
+		end
+		local doBulk = function()
+			if _InventoryLogic then
+				_InventoryLogic:RequestBulkDismantle(maxLv)
+			elseif _UIToast then
+				_UIToast:ShowMessage("서버 로직(REQ-INVEN-01) 연결 대기 중입니다.")
+			end
+		end
+		if _UIPopup and _UIPopup.Open then
+			local msg = string.format("미잠금·노강·레어 이하 장비 %d개를 분해하여\n주문의 흔적 +%s개를 획득할까요?", cnt, _GameDataLogic:FormatComma(traceEst))
+			_UIPopup:Open(msg, doBulk, nil)
+		else
+			doBulk()
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickAllocateAp(string statKey, integer amount)
+		local now = _UtilLogic.ElapsedSeconds
+		if (now - self.LastApClickAt) < 0.12 then return end
+		self.LastApClickAt = now
+		if _PlayerDataLogic and _PlayerDataLogic.RequestAllocateAp then
+			_PlayerDataLogic:RequestAllocateAp(statKey, amount)
+		elseif _UIToast then
+			_UIToast:ShowMessage("AP 배분 서버 로직(REQ-STAT-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickAutoAp()
+		local now = _UtilLogic.ElapsedSeconds
+		if (now - self.LastApClickAt) < 0.15 then return end
+		self.LastApClickAt = now
+		if _PlayerDataLogic and _PlayerDataLogic.RequestAutoAllocateAp then
+			_PlayerDataLogic:RequestAutoAllocateAp()
+		elseif _UIToast then
+			_UIToast:ShowMessage("AP 자동 배분 서버 로직(REQ-STAT-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickResetAp()
+		if _PlayerDataLogic and _PlayerDataLogic.RequestResetAp then
+			_PlayerDataLogic:RequestResetAp()
+		elseif _UIToast then
+			_UIToast:ShowMessage("AP 초기화 서버 로직(REQ-STAT-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickToggleAutoPotion()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = snap and snap.profile or nil
+		local curOn = (p and p.autoPotionEnabled ~= false)
+		local thr = (p and p.autoPotionThreshold) or 0.50
+		if _SurvivalLogic then
+			_SurvivalLogic:RequestSetAutoPotion(not curOn, thr)
+		elseif _UIToast then
+			_UIToast:ShowMessage("자동 포션 서버 로직(REQ-SURV-01) 연결 대기 중입니다.")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshStatWindow()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		if not snap or not snap.profile or not snap.stats then return end
+		local p = snap.profile
+		local s = snap.stats
+		local tierInfo = _GameDataLogic:GetJobTierInfo(p.jobTier or 0)
+		local lp = _UserService.LocalPlayer
+		local nick = (isvalid(lp) and isvalid(lp.PlayerComponent) and lp.PlayerComponent.Nickname) or "모험가"
+		local ST = "/ui/IdleHUDGroup/StatWindow"
+		
+		local bName = _EntityService:GetEntityByPath(ST .. "/BannerName")
+		if isvalid(bName) then bName.TextComponent.Text = string.format("Lv.%d  %s  |  %s", p.level, tierInfo.name, nick) end
+		local bPwr = _EntityService:GetEntityByPath(ST .. "/BannerPower")
+		if isvalid(bPwr) then bPwr.TextComponent.Text = "전투력  " .. _GameDataLogic:FormatComma(s.combatPower or 0) end
+		
+		-- AP Allocation Block (REQ-STAT-02)
+		local baseSt = p.baseStats or { str = 4, dex = 4, int = 4, luk = 4 }
+		local apLeft = p.unspentAp or 0
+		local apLbl = _EntityService:GetEntityByPath(ST .. "/ApText")
+		if isvalid(apLbl) then apLbl.TextComponent.Text = "ABILITY POINT (AP) : " .. tostring(apLeft) end
+		
+		local totalStr = s.totalStr or s.totalMainStat or (baseSt.str or 4)
+		local totalDex = s.totalDex or (baseSt.dex or 4)
+		local totalInt = s.totalInt or (baseSt.int or 4)
+		local totalLuk = s.totalLuk or (baseSt.luk or 4)
+		local apRows = {
+			{ "ApValStr", "BtnApStr", string.format("STR %d (%d+%d)", totalStr, baseSt.str or 4, math.max(0, totalStr - (baseSt.str or 4))) },
+			{ "ApValDex", "BtnApDex", string.format("DEX %d (%d+%d)", totalDex, baseSt.dex or 4, math.max(0, totalDex - (baseSt.dex or 4))) },
+			{ "ApValInt", "BtnApInt", string.format("INT %d", totalInt) },
+			{ "ApValLuk", "BtnApLuk", string.format("LUK %d", totalLuk) },
+		}
+		for _, r in ipairs(apRows) do
+			local vEnt = _EntityService:GetEntityByPath(ST .. "/" .. r[1])
+			if isvalid(vEnt) and isvalid(vEnt.TextComponent) then vEnt.TextComponent.Text = r[3] end
+			local bEnt = _EntityService:GetEntityByPath(ST .. "/" .. r[2])
+			if isvalid(bEnt) then
+				if isvalid(bEnt.SpriteGUIRendererComponent) then
+					bEnt.SpriteGUIRendererComponent.ImageRUID = (apLeft > 0) and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+				end
+			end
+		end
+		local btnAutoAp = _EntityService:GetEntityByPath(ST .. "/BtnAutoAp")
+		if isvalid(btnAutoAp) and isvalid(btnAutoAp.SpriteGUIRendererComponent) then
+			btnAutoAp.SpriteGUIRendererComponent.ImageRUID = (apLeft > 0) and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+		end
+		
+		local vals = {
+			_GameDataLogic:FormatComma(totalStr),
+			_GameDataLogic:FormatComma(s.totalAtt or 0),
+			_GameDataLogic:FormatComma(s.totalMaxHp or 1200),
+			"★ " .. tostring(s.totalStarforce or 0),
+			tostring(s.critRate or 0) .. "%",
+			tostring(s.critDmgPct or 50) .. "%",
+			string.format("보공 %d%% / 최뎀 %d%%", s.bossDmgPct or 0, s.finalDmgPct or 0),
+			tostring(s.iedPct or 0) .. "%",
+			string.format("메+%d%% · 드+%d%% · 경+%d%%", s.mesoPct or 0, s.dropPct or 0, s.expPct or 0),
+		}
+		for i, v in ipairs(vals) do
+			local ent = _EntityService:GetEntityByPath(ST .. "/RowVal_" .. tostring(i))
+			if isvalid(ent) and isvalid(ent.TextComponent) then ent.TextComponent.Text = v end
+		end
+		
+		local setTxt = _EntityService:GetEntityByPath(ST .. "/SetSummaryText")
+		if isvalid(setTxt) and isvalid(setTxt.TextComponent) then
+			local sets = s.activeSets
+			if sets and #sets > 0 then
+				local parts = {}
+				for _, st in ipairs(sets) do table.insert(parts, string.format("%s(%d)", st.name or st.setId, st.count or 0)) end
+				setTxt.TextComponent.Text = "세트: " .. table.concat(parts, " · ")
+			else
+				setTxt.TextComponent.Text = "활성 세트: 없음"
+			end
+		end
+		
+		local btnPot = _EntityService:GetEntityByPath(ST .. "/BtnAutoPotionToggle")
+		if isvalid(btnPot) and isvalid(btnPot.TextComponent) then
+			local on = (p.autoPotionEnabled ~= false)
+			local pct = math.floor(((p.autoPotionThreshold or 0.50) * 100) + 0.5)
+			btnPot.TextComponent.Text = on and ("자동포션 ON (HP " .. tostring(pct) .. "%)") or "자동포션 OFF"
+		end
+		
+		local nxtAdv = _GameDataLogic:GetNextAdvanceTier(p.jobTier or 0, p.level)
+		local stAdv = _EntityService:GetEntityByPath(ST .. "/BtnJobAdvanceStat")
+		if isvalid(stAdv) and isvalid(stAdv.TextComponent) then
+			if nxtAdv then
+				stAdv.TextComponent.Text = "★ " .. tostring(nxtAdv.tier) .. "차 전직: " .. nxtAdv.shortName .. "!"
+			elseif (p.jobTier or 0) >= 4 then
+				stAdv.TextComponent.Text = "히어로 4차 마스터 ✓"
+			else
+				local upcoming = _GameDataLogic:GetJobTierInfo((p.jobTier or 0) + 1)
+				stAdv.TextComponent.Text = string.format("다음 전직: Lv.%d %s", upcoming.reqLevel, upcoming.shortName)
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshSkillWindow()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = snap and snap.profile or nil
+		local curTier = (p and p.jobTier) or 0
+		local curLv = (p and p.level) or 1
+		local viewTier = math.max(1, math.min(4, self.SkillTabTier or 1))
+		local tierInfo = _GameDataLogic:GetJobTierInfo(viewTier)
+		local SK = "/ui/IdleHUDGroup/SkillWindow"
+		
+		local tabNames = { "TabI", "TabII", "TabIII", "TabIV" }
+		for t = 1, 4 do
+			local ent = _EntityService:GetEntityByPath(SK .. "/" .. tabNames[t])
+			local active = (viewTier == t)
+			if isvalid(ent) then
+				if isvalid(ent.SpriteGUIRendererComponent) then
+					ent.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+				end
+				if isvalid(ent.TextComponent) then
+					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.28, 0.34, 0.42, 1)
+					ent.TextComponent.UseOutLine = active
+				end
+			end
+		end
+		
+		local bt = _EntityService:GetEntityByPath(SK .. "/BookTitle")
+		if isvalid(bt) then
+			local lockTag = (curTier >= viewTier) and " [해금]" or string.format(" [Lv.%d 전직]", tierInfo.reqLevel)
+			bt.TextComponent.Text = tierInfo.name .. lockTag
+		end
+		
+		local skillIds = tierInfo.skills or {}
+		for i = 1, 3 do
+			local sid = skillIds[i]
+			local sk = sid and _GameDataLogic:GetSkillInfo(sid) or nil
+			local ic = _EntityService:GetEntityByPath(SK .. "/SkillIcon_" .. tostring(i))
+			local nm = _EntityService:GetEntityByPath(SK .. "/SkillName_" .. tostring(i))
+			local ds = _EntityService:GetEntityByPath(SK .. "/SkillDesc_" .. tostring(i))
+			local btn = _EntityService:GetEntityByPath(SK .. "/BtnCastSkill_" .. tostring(i))
+			if sk then
+				local unlocked = (curTier >= (sk.minTier or 0))
+				if isvalid(ic) then
+					ic.SpriteGUIRendererComponent.ImageRUID = sk.iconRuid
+					ic.SpriteGUIRendererComponent.Color = unlocked and Color(1, 1, 1, 1) or Color(0.45, 0.45, 0.45, 0.7)
+				end
+				if isvalid(nm) then nm.TextComponent.Text = sk.name .. (unlocked and " [M]" or " [잠금]") end
+				if isvalid(ds) then
+					if sk.isPassive then
+						ds.TextComponent.Text = sk.desc
+					else
+						ds.TextComponent.Text = string.format("%s\n배율 %.0f%% · %d타 · 쿨 %.2f초",
+							sk.desc, (sk.dmgMult or 1) * 100, sk.hitCount or 1, sk.cooldown or 0.5)
+					end
+				end
+				if isvalid(btn) then btn.Enable = (not sk.isPassive) and unlocked end
+			end
+		end
+		
+		local curTierInfo = _GameDataLogic:GetJobTierInfo(curTier)
+		local spTxt = _EntityService:GetEntityByPath(SK .. "/SpText")
+		if isvalid(spTxt) then spTxt.TextComponent.Text = "현재 전직 : " .. curTierInfo.name end
+		
+		local nxtAdv = _GameDataLogic:GetNextAdvanceTier(curTier, curLv)
+		local btnAdv = _EntityService:GetEntityByPath(SK .. "/BtnAdvanceTier")
+		if isvalid(btnAdv) and isvalid(btnAdv.TextComponent) then
+			if nxtAdv then
+				btnAdv.TextComponent.Text = "★ " .. tostring(nxtAdv.tier) .. "차 전직하기!"
+			elseif curTier >= 4 then
+				btnAdv.TextComponent.Text = "히어로 4차 완료 ✓"
+			else
+				local upcoming = _GameDataLogic:GetJobTierInfo(curTier + 1)
+				btnAdv.TextComponent.Text = "Lv." .. tostring(upcoming.reqLevel) .. " " .. upcoming.shortName
+			end
+		end
+	end
+
+end

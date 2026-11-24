@@ -1,0 +1,367 @@
+@Logic
+script UIEnhanceController extends Logic
+
+	property string CurrentTab = "scroll"
+
+	property string SelectedUid = ""
+
+	property integer InventoryPage = 1
+
+	property boolean UseSafeguard = false
+
+	property boolean UseStarCatch = true
+
+	property string LastLog = "강화할 장비를 선택하고 버튼을 눌러보세요!"
+
+	property any DisplayedUids = nil
+
+	property boolean BoundEvents = false
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		self.DisplayedUids = {}
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BindUIEvents()
+		if self.BoundEvents then return end
+		self.BoundEvents = true
+		
+		local P = "/ui/EnhanceUIGroup/MainPanel"
+		local btnClose = _EntityService:GetEntityByPath(P .. "/BtnClose")
+		if isvalid(btnClose) then btnClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetEnhanceOpen(false) end) end
+		local btnEquip = _EntityService:GetEntityByPath(P .. "/DetailCard/BtnEquip")
+		if isvalid(btnEquip) then
+			btnEquip:ConnectEvent(ButtonClickEvent, function()
+				if self.SelectedUid ~= "" then _PlayerDataLogic:RequestEquipItem(self.SelectedUid) end
+			end)
+		end
+		local bindEnhTab = function(nm, tabKey)
+			local t = _EntityService:GetEntityByPath(P .. "/" .. nm)
+			if isvalid(t) then
+				t:ConnectEvent(ButtonClickEvent, function()
+					self.CurrentTab = tabKey
+					_UIIdleManager.CurrentTab = tabKey
+					self:RefreshEnhancePanel()
+				end)
+			end
+		end
+		bindEnhTab("TabScroll", "scroll")
+		bindEnhTab("TabStarforce", "starforce")
+		bindEnhTab("TabCube", "cube")
+		local btnPrev = _EntityService:GetEntityByPath(P .. "/LeftPanel/BtnPrevPage")
+		if isvalid(btnPrev) then
+			btnPrev:ConnectEvent(ButtonClickEvent, function()
+				if self.InventoryPage > 1 then self.InventoryPage = self.InventoryPage - 1; self:RefreshEnhancePanel() end
+			end)
+		end
+		local btnNext = _EntityService:GetEntityByPath(P .. "/LeftPanel/BtnNextPage")
+		if isvalid(btnNext) then
+			btnNext:ConnectEvent(ButtonClickEvent, function()
+				self.InventoryPage = self.InventoryPage + 1; self:RefreshEnhancePanel()
+			end)
+		end
+		for i = 1, 10 do
+			local idx = i
+			local btn = _EntityService:GetEntityByPath(P .. "/LeftPanel/ItemBtn_" .. tostring(idx))
+			if isvalid(btn) then
+				btn:ConnectEvent(ButtonClickEvent, function()
+					local uid = self.DisplayedUids and self.DisplayedUids[idx] or nil
+					if uid then
+						self.SelectedUid = uid
+						_UIIdleManager.SelectedUid = uid
+						self:RefreshEnhancePanel()
+					end
+				end)
+			end
+		end
+		for i = 1, 8 do
+			local idx = i
+			local btn = _EntityService:GetEntityByPath(P .. "/ActionPanel/ActBtn_" .. tostring(idx))
+			if isvalid(btn) then btn:ConnectEvent(ButtonClickEvent, function() self:OnClickAction(idx) end) end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetOpen(boolean open)
+		local grp = _EntityService:GetEntityByPath("/ui/EnhanceUIGroup")
+		if isvalid(grp) then grp.Enable = open end
+		if open then self:RefreshEnhancePanel() end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetEnhanceLog(string msg)
+		self.LastLog = msg
+		local logEntity = _EntityService:GetEntityByPath("/ui/EnhanceUIGroup/MainPanel/ActionPanel/LogText")
+		if isvalid(logEntity) and isvalid(logEntity.TextComponent) then
+			logEntity.TextComponent.Text = msg
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshEnhancePanel()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		if not snap or not snap.profile then return end
+		local profile = snap.profile
+		local inv = profile.inventory or {}
+		local P = "/ui/EnhanceUIGroup/MainPanel"
+		
+		for _, tb in ipairs({ { "TabScroll", "scroll" }, { "TabStarforce", "starforce" }, { "TabCube", "cube" } }) do
+			local ent = _EntityService:GetEntityByPath(P .. "/" .. tb[1])
+			local active = (self.CurrentTab == tb[2])
+			if isvalid(ent) then
+				if isvalid(ent.SpriteGUIRendererComponent) then
+					ent.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+				end
+				if isvalid(ent.TextComponent) then
+					ent.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.24, 0.28, 0.36, 1)
+					ent.TextComponent.UseOutLine = active
+				end
+			end
+		end
+		
+		local ordered = {}
+		local seen = {}
+		for _, slot in ipairs(_UIIdleManager:GetAllSlotOrder()) do
+			local uid = profile.equipped and profile.equipped[slot] or nil
+			if uid then
+				local it = _UIIdleManager:FindClientItem(uid)
+				if it then table.insert(ordered, it); seen[uid] = true end
+			end
+		end
+		for _, it in ipairs(inv) do
+			if not seen[it.uid] then table.insert(ordered, it) end
+		end
+		
+		if self.SelectedUid == "" or not _UIIdleManager:FindClientItem(self.SelectedUid) then
+			if #ordered > 0 then self.SelectedUid = ordered[1].uid else self.SelectedUid = "" end
+		end
+		
+		local maxPage = math.max(1, math.ceil(#ordered / 10))
+		if self.InventoryPage > maxPage then self.InventoryPage = maxPage end
+		self.DisplayedUids = {}
+		local startIdx = (self.InventoryPage - 1) * 10 + 1
+		
+		for i = 1, 10 do
+			local btn = _EntityService:GetEntityByPath(P .. "/LeftPanel/ItemBtn_" .. tostring(i))
+			local item = ordered[startIdx + i - 1]
+			if isvalid(btn) then
+				if item then
+					btn.Enable = true
+					self.DisplayedUids[i] = item.uid
+					local master = _GameDataLogic:GetItemMaster(item.itemId)
+					local name = master and master.name or item.itemId
+					local lockTag = item.locked and "🔒" or ""
+					local prefix = _UIIdleManager:IsClientItemEquipped(item.uid) and "[착용] " or (item.isDestroyed and "[흔적] " or "[보관] ")
+					local starStr = (item.star and item.star > 0) and ("★" .. tostring(item.star) .. " ") or ""
+					local gradeKr = _GameDataLogic:GetGradeKorean(item.potentialGrade or "Rare")
+					local isSel = (item.uid == self.SelectedUid)
+					btn.SpriteGUIRendererComponent.ImageRUID = isSel and "286bd3d23b9142fcb79bc626cabff215" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+					btn.TextComponent.Text = (isSel and "▶ " or "") .. lockTag .. prefix .. starStr .. name .. " [" .. gradeKr .. "]"
+					btn.TextComponent.FontColor = isSel and Color(1, 1, 1, 1) or Color(0.14, 0.18, 0.26, 1)
+				else
+					btn.Enable = false
+				end
+			end
+		end
+		
+		local selected = _UIIdleManager:FindClientItem(self.SelectedUid)
+		self:RenderDetailCard(selected)
+		self:RenderActionTab(selected, profile)
+		self:SetEnhanceLog(self.LastLog)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RenderDetailCard(any item)
+		local P = "/ui/EnhanceUIGroup/MainPanel/DetailCard"
+		local starRow = _EntityService:GetEntityByPath(P .. "/StarRowText")
+		local iconEnt = _EntityService:GetEntityByPath(P .. "/ItemIcon")
+		local titleEnt = _EntityService:GetEntityByPath(P .. "/DetailTitle")
+		local bodyEnt = _EntityService:GetEntityByPath(P .. "/DetailBody")
+		local equipBtn = _EntityService:GetEntityByPath(P .. "/BtnEquip")
+		
+		if not item then
+			if isvalid(starRow) then starRow.TextComponent.Text = "" end
+			if isvalid(titleEnt) then titleEnt.TextComponent.Text = "선택된 장비 없음" end
+			if isvalid(bodyEnt) then bodyEnt.TextComponent.Text = "" end
+			return
+		end
+		
+		local master = _GameDataLogic:GetItemMaster(item.itemId)
+		local name = master and master.name or item.itemId
+		local slotKr = _UIIdleManager:GetSlotLabel(item.slot or "")
+		local maxStar = _GameDataLogic:GetMaxStar(item.reqLevel or 140)
+		local succStr = (item.scrollSuccess and item.scrollSuccess > 0) and (" (+" .. tostring(item.scrollSuccess) .. ")") or ""
+		local traceTag = item.isDestroyed and " [파괴된 흔적]" or ""
+		local lockTag = item.locked and "🔒 " or ""
+		
+		if isvalid(starRow) then starRow.TextComponent.Text = _UIIdleManager:BuildStarRow(item.star or 0, maxStar) end
+		if isvalid(iconEnt) then iconEnt.SpriteGUIRendererComponent.ImageRUID = _UIIdleManager:GetItemIcon(item.itemId) end
+		if isvalid(titleEnt) then titleEnt.TextComponent.Text = lockTag .. name .. succStr .. traceTag end
+		if isvalid(equipBtn) and isvalid(equipBtn.TextComponent) then
+			if item.isDestroyed then equipBtn.TextComponent.Text = "복구 필요"
+			elseif _UIIdleManager:IsClientItemEquipped(item.uid) then equipBtn.TextComponent.Text = "장착 중 ✓"
+			else equipBtn.TextComponent.Text = "장착하기" end
+		end
+		
+		local sfBonus = _GameDataLogic:GetStarforceBonus(item.itemId, item.star or 0)
+		local scAtt = item.scrollBonus and item.scrollBonus.att or 0
+		local scStat = item.scrollBonus and item.scrollBonus.mainStat or 0
+		local totalAtt = (master and master.baseAtt or 0) + scAtt + sfBonus.att
+		local totalStat = (master and (master.baseStr or master.baseMainStat) or 0) + scStat + sfBonus.mainStat
+		
+		local potLines = ""
+		if item.potentials then
+			for idx, ln in ipairs(item.potentials) do
+				potLines = potLines .. " " .. tostring(idx) .. ") " .. (ln.label or "") .. (idx < #item.potentials and "  |" or "")
+			end
+		end
+		
+		local body = string.format(
+			"부위: %s (Lv.%d)  |  공격력: %d (기본%d +작%d +스타%d)  |  STR: %d\n" ..
+			"주문서: 남은 업횟 %d / 실패 %d / 황망 %s  |  스타포스: %d / %d성\n" ..
+			"잠재능력 [%s] (등업 천장 %d회):%s",
+			slotKr, item.reqLevel or 140,
+			totalAtt, (master and master.baseAtt or 0), scAtt, sfBonus.att, totalStat,
+			item.upgradeRemaining or 0, item.scrollFail or 0, item.hammerUsed and "완료" or "미사용",
+			item.star or 0, maxStar,
+			_GameDataLogic:GetGradeKorean(item.potentialGrade or "Rare"), item.cubePityCount or 0,
+			potLines
+		)
+		if isvalid(bodyEnt) then bodyEnt.TextComponent.Text = body end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetActionBtn(integer idx, boolean enabled, string label)
+		local btn = _EntityService:GetEntityByPath("/ui/EnhanceUIGroup/MainPanel/ActionPanel/ActBtn_" .. tostring(idx))
+		if not isvalid(btn) then return end
+		btn.Enable = enabled
+		if enabled and isvalid(btn.TextComponent) then btn.TextComponent.Text = label end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RenderActionTab(any item, any profile)
+		local infoEnt = _EntityService:GetEntityByPath("/ui/EnhanceUIGroup/MainPanel/ActionPanel/ActionInfoText")
+		if not item then
+			for i = 1, 8 do self:SetActionBtn(i, false, "") end
+			if isvalid(infoEnt) then infoEnt.TextComponent.Text = "좌측 목록에서 강화할 장비를 선택해 주세요." end
+			return
+		end
+		
+		if self.CurrentTab == "scroll" then
+			if isvalid(infoEnt) then
+				infoEnt.TextComponent.Text = string.format(
+					"[주문의 흔적] 보유 흔적: %s  |  남은 업횟: %d회  |  복구 가능 실패: %d회\n" ..
+					"※ 업횟을 모두 소진(0회)하면 스타포스 강화가 해금됩니다. (연속작 버튼 지원)",
+					_GameDataLogic:FormatNumber(profile.spellTrace or 0), item.upgradeRemaining or 0, item.scrollFail or 0
+				)
+			end
+			self:SetActionBtn(1, true, "100% 작 (15)")
+			self:SetActionBtn(2, true, "70% 작 (30)")
+			self:SetActionBtn(3, true, "30% 작 (60)")
+			self:SetActionBtn(4, true, "15% 작 (100)")
+			self:SetActionBtn(5, true, "연속 70% 작")
+			self:SetActionBtn(6, true, "순백 10% (250)")
+			self:SetActionBtn(7, true, "이노센트 (500)")
+			self:SetActionBtn(8, true, "황금망치 (300)")
+		
+		elseif self.CurrentTab == "starforce" then
+			local curStar = item.star or 0
+			local maxStar = _GameDataLogic:GetMaxStar(item.reqLevel or 140)
+			local row = _GameDataLogic.StarforceTable[curStar]
+			local info = ""
+			if item.isDestroyed then
+				info = "💥 파괴된 '장비의 흔적' 상태입니다!\n미장착·미잠금 동일 장비(스페어) 보유 시 [스페어 12★ 복구]로 즉시 복구됩니다."
+			elseif (item.upgradeRemaining or 0) > 0 then
+				info = "🔒 주문서 업그레이드 가능 횟수가 " .. tostring(item.upgradeRemaining) .. "회 남아 있습니다.\n[1. 주문의 흔적] 탭에서 업횟을 모두 소진한 뒤 스타포스를 진행해 주세요!"
+			elseif curStar >= maxStar or not row then
+				info = "★ 최대 스타포스(" .. tostring(maxStar) .. "성) 달성!"
+			else
+				local applySafe = self.UseSafeguard and row.canSafeguard
+				local cost = _GameDataLogic:GetStarforceMesoCost(item.reqLevel or 140, curStar, applySafe)
+				local chanceTag = ((item.consecutiveFailDrop or 0) >= 2) and "  🔥 [찬스 타임! 100%]" or ""
+				local boomPct = applySafe and 0 or (row.boom * 100)
+				local succPct = self.UseStarCatch and math.min(100, row.success * 105) or (row.success * 100)
+				local curB = _GameDataLogic:GetStarforceBonus(item.itemId, curStar)
+				local nxtB = _GameDataLogic:GetStarforceBonus(item.itemId, curStar + 1)
+				info = string.format(
+					"[스타포스] ★%d → ★%d  (공 +%d / STR +%d)   비용: %s 메소%s\n" ..
+					"성공 %.1f%%  |  유지 %.1f%%  |  하락 %.1f%%  |  파괴 %.1f%%  (15~16성 파괴방지 가능)",
+					curStar, curStar + 1, nxtB.att - curB.att, nxtB.mainStat - curB.mainStat,
+					_GameDataLogic:FormatNumber(cost), chanceTag,
+					succPct, row.keep * 100, row.drop * 100, boomPct
+				)
+			end
+			if isvalid(infoEnt) then infoEnt.TextComponent.Text = info end
+			self:SetActionBtn(1, true, "★ 스타포스 강화")
+			self:SetActionBtn(2, true, self.UseSafeguard and "파괴방지: ON (2배)" or "파괴방지: OFF")
+			self:SetActionBtn(3, true, self.UseStarCatch and "스타캐치: ON (+5%)" or "스타캐치: OFF")
+			self:SetActionBtn(4, item.isDestroyed == true, "스페어 12★ 복구")
+			for i = 5, 8 do self:SetActionBtn(i, false, "") end
+		
+		elseif self.CurrentTab == "cube" then
+			local c = profile.cubes or {}
+			local info = ""
+			if item.pendingPotential then
+				local bStr, aStr = "", ""
+				for _, ln in ipairs(item.potentials or {}) do bStr = bStr .. (ln.label or "") .. " / " end
+				for _, ln in ipairs(item.pendingPotential.potentials or {}) do aStr = aStr .. (ln.label or "") .. " / " end
+				info = string.format(
+					"★ 블랙 큐브 결과 비교 — 원하는 잠재능력을 선택하세요!\n[BEFORE · %s] %s\n[AFTER  · %s] %s",
+					_GameDataLogic:GetGradeKorean(item.potentialGrade), bStr,
+					_GameDataLogic:GetGradeKorean(item.pendingPotential.grade), aStr
+				)
+			else
+				info = string.format(
+					"[잠재능력 큐브] 현재 등급: %s  |  천장 누적: %d회\n" ..
+					"수상(에픽↑) · 장인(유니크↑) · 명장/레드/블랙(레전드리↑, 블랙은 BEFORE/AFTER 선택)",
+					_GameDataLogic:GetGradeKorean(item.potentialGrade or "Rare"), item.cubePityCount or 0
+				)
+			end
+			if isvalid(infoEnt) then infoEnt.TextComponent.Text = info end
+			local hasPending = (item.pendingPotential ~= nil)
+			self:SetActionBtn(1, not hasPending, "수상한 (" .. tostring(c.suspicious or 0) .. ")")
+			self:SetActionBtn(2, not hasPending, "장인의 (" .. tostring(c.master or 0) .. ")")
+			self:SetActionBtn(3, not hasPending, "명장의 (" .. tostring(c.meister or 0) .. ")")
+			self:SetActionBtn(4, not hasPending, "레드 (" .. tostring(c.red or 0) .. ")")
+			self:SetActionBtn(5, not hasPending, "블랙 (" .. tostring(c.black or 0) .. ")")
+			self:SetActionBtn(6, hasPending, "BEFORE 유지")
+			self:SetActionBtn(7, hasPending, "AFTER 적용")
+			self:SetActionBtn(8, false, "")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnClickAction(integer idx)
+		if self.SelectedUid == "" then return end
+		
+		if self.CurrentTab == "scroll" then
+			if idx == 1 then _EnhanceLogic:RequestScroll(self.SelectedUid, "scroll_100", false)
+			elseif idx == 2 then _EnhanceLogic:RequestScroll(self.SelectedUid, "scroll_70", false)
+			elseif idx == 3 then _EnhanceLogic:RequestScroll(self.SelectedUid, "scroll_30", false)
+			elseif idx == 4 then _EnhanceLogic:RequestScroll(self.SelectedUid, "scroll_15", false)
+			elseif idx == 5 then _EnhanceLogic:RequestScroll(self.SelectedUid, "scroll_70", true)
+			elseif idx == 6 then _EnhanceLogic:RequestScroll(self.SelectedUid, "clean_slate", false)
+			elseif idx == 7 then _EnhanceLogic:RequestScroll(self.SelectedUid, "innocence", false)
+			elseif idx == 8 then _EnhanceLogic:RequestScroll(self.SelectedUid, "golden_hammer", false)
+			end
+		elseif self.CurrentTab == "starforce" then
+			if idx == 1 then _EnhanceLogic:RequestStarforce(self.SelectedUid, self.UseSafeguard, self.UseStarCatch)
+			elseif idx == 2 then self.UseSafeguard = not self.UseSafeguard; self:RefreshEnhancePanel()
+			elseif idx == 3 then self.UseStarCatch = not self.UseStarCatch; self:RefreshEnhancePanel()
+			elseif idx == 4 then _EnhanceLogic:RequestRestoreTrace(self.SelectedUid)
+			end
+		elseif self.CurrentTab == "cube" then
+			if idx == 1 then _EnhanceLogic:RequestCube(self.SelectedUid, "suspicious")
+			elseif idx == 2 then _EnhanceLogic:RequestCube(self.SelectedUid, "master")
+			elseif idx == 3 then _EnhanceLogic:RequestCube(self.SelectedUid, "meister")
+			elseif idx == 4 then _EnhanceLogic:RequestCube(self.SelectedUid, "red")
+			elseif idx == 5 then _EnhanceLogic:RequestCube(self.SelectedUid, "black")
+			elseif idx == 6 then _EnhanceLogic:RequestConfirmBlackCube(self.SelectedUid, false)
+			elseif idx == 7 then _EnhanceLogic:RequestConfirmBlackCube(self.SelectedUid, true)
+			end
+		end
+	end
+
+end

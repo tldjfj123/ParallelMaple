@@ -1,0 +1,359 @@
+@Logic
+script UINavigationWindows extends Logic
+
+	property integer HuntMapPage = 1
+
+	property integer SelectedStage = 1
+
+	property any DisplayedMaps = nil
+
+	property boolean IsTreasureOpen = false
+
+	property boolean BoundEvents = false
+
+	property number TickAccum = 0
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		self.DisplayedMaps = {}
+	end
+
+	@ExecSpace("ClientOnly")
+	method integer GetChapterBurningStage(integer chapterIdx)
+		local slot = math.floor(DateTime.UtcNow.Elapsed / (30 * 60 * 1000))
+		local hash = ((slot * 1103515245 + chapterIdx * 12345) % 2147483647)
+		if (hash % 18) < 5 then
+			return 3 + (math.floor(hash / 18) % 8) -- 3 ~ 10 stage (+30% ~ +100% EXP)
+		end
+		return 0
+	end
+
+	@ExecSpace("ClientOnly")
+	method void BindUIEvents()
+		if self.BoundEvents then return end
+		self.BoundEvents = true
+		
+		local HM = "/ui/IdleHUDGroup/HuntingMapWindow"
+		local hmClose = _EntityService:GetEntityByPath(HM .. "/BtnClose")
+		if isvalid(hmClose) then hmClose:ConnectEvent(ButtonClickEvent, function() _UIIdleManager:SetWindowOpen("huntmap", false) end) end
+		local hmRec = _EntityService:GetEntityByPath(HM .. "/BtnRecMap")
+		if isvalid(hmRec) then
+			hmRec:ConnectEvent(ButtonClickEvent, function()
+				local snap = _PlayerDataLogic.ClientSnapshot
+				local lv = (snap and snap.profile and snap.profile.level) or 1
+				local rec = _GameDataLogic:GetRecommendedHuntingMap(lv)
+				if rec then
+					self:MoveToChapter(rec.chapterIndex or 1, self.SelectedStage, rec.mapName)
+					_UIIdleManager:SetWindowOpen("huntmap", false)
+				end
+			end)
+		end
+		local hmTown = _EntityService:GetEntityByPath(HM .. "/BtnTownQuick")
+		if isvalid(hmTown) then
+			hmTown:ConnectEvent(ButtonClickEvent, function()
+				if _HuntingInstanceLogic then
+					_HuntingInstanceLogic:RequestReturnTown()
+				else
+					_PlayerDataLogic:RequestTeleportMap(_PlayerDataLogic.TownMapName)
+				end
+				_UIIdleManager:SetWindowOpen("huntmap", false)
+			end)
+		end
+		local hmPrev = _EntityService:GetEntityByPath(HM .. "/BtnMapPrev")
+		if isvalid(hmPrev) then
+			hmPrev:ConnectEvent(ButtonClickEvent, function()
+				if self.HuntMapPage > 1 then self.HuntMapPage = self.HuntMapPage - 1; self:RefreshHuntMapWindow() end
+			end)
+		end
+		local hmNext = _EntityService:GetEntityByPath(HM .. "/BtnMapNext")
+		if isvalid(hmNext) then
+			hmNext:ConnectEvent(ButtonClickEvent, function()
+				self.HuntMapPage = self.HuntMapPage + 1; self:RefreshHuntMapWindow()
+			end)
+		end
+		for s = 1, 5 do
+			local stVal = s
+			local btnSt = _EntityService:GetEntityByPath(HM .. "/BtnStage_" .. tostring(stVal))
+			if isvalid(btnSt) then
+				btnSt:ConnectEvent(ButtonClickEvent, function()
+					self.SelectedStage = stVal
+					self:RefreshHuntMapWindow()
+				end)
+			end
+		end
+		for i = 1, 9 do
+			local rowIdx = i
+			local btnMv = _EntityService:GetEntityByPath(HM .. "/MapRow_" .. tostring(rowIdx) .. "/BtnMove")
+			if isvalid(btnMv) then
+				btnMv:ConnectEvent(ButtonClickEvent, function()
+					local entry = self.DisplayedMaps and self.DisplayedMaps[rowIdx]
+					if entry then
+						self:MoveToChapter(entry.chapterIdx, self.SelectedStage, entry.map.mapName)
+						local snap = _PlayerDataLogic.ClientSnapshot
+						local lv = (snap and snap.profile and snap.profile.level) or 1
+						if lv >= entry.map.reqLevel then
+							_UIIdleManager:SetWindowOpen("huntmap", false)
+						end
+					end
+				end)
+			end
+		end
+		
+		-- Hunting Top Progress Bar & Treasure 3-Pick Popup (REQ-HUNT-04)
+		local HPB = "/ui/IdleHUDGroup/HuntProgressBar"
+		local btnChal = _EntityService:GetEntityByPath(HPB .. "/BtnChallengeBoss")
+		if isvalid(btnChal) then
+			btnChal:ConnectEvent(ButtonClickEvent, function()
+				if _HuntingInstanceLogic then
+					_HuntingInstanceLogic:RequestChallengeChapterBoss()
+				elseif _UIToast then
+					_UIToast:ShowMessage("챕터 돌파 서버 로직(REQ-HUNT-02) 연결 대기 중입니다.")
+				end
+			end)
+		end
+		local btnTr = _EntityService:GetEntityByPath(HPB .. "/BtnTreasureBox")
+		if isvalid(btnTr) then
+			btnTr:ConnectEvent(ButtonClickEvent, function()
+				self:SetTreasureModalOpen(not self.IsTreasureOpen)
+			end)
+		end
+		
+		local TM = "/ui/IdleHUDGroup/TreasureModal"
+		local tmClose = _EntityService:GetEntityByPath(TM .. "/BtnClose")
+		if isvalid(tmClose) then
+			tmClose:ConnectEvent(ButtonClickEvent, function() self:SetTreasureModalOpen(false) end)
+		end
+		for c = 1, 3 do
+			local cIdx = c
+			local cardBtn = _EntityService:GetEntityByPath(TM .. "/CardBtn_" .. tostring(cIdx))
+			if isvalid(cardBtn) then
+				cardBtn:ConnectEvent(ButtonClickEvent, function()
+					if _HuntingEventLogic then
+						_HuntingEventLogic:RequestClaimTreasureCard(cIdx)
+					elseif _HuntingInstanceLogic and _HuntingInstanceLogic.RequestClaimTreasureCard then
+						_HuntingInstanceLogic:RequestClaimTreasureCard(cIdx)
+					elseif _UIToast then
+						_UIToast:ShowMessage("도파민 상자 서버 로직(REQ-HUNT-03) 연결 대기 중입니다.")
+					end
+					self:SetTreasureModalOpen(false)
+				end)
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void MoveToChapter(integer chapterIdx, integer stageIdx, string mapName)
+		if _HuntingInstanceLogic then
+			_HuntingInstanceLogic:RequestEnterHuntingStage(chapterIdx, stageIdx)
+		else
+			_PlayerDataLogic:RequestTeleportMap(mapName)
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SetTreasureModalOpen(boolean open)
+		self.IsTreasureOpen = open
+		local tm = _EntityService:GetEntityByPath("/ui/IdleHUDGroup/TreasureModal")
+		if isvalid(tm) then tm.Enable = open end
+		if open then self:RefreshTreasureModal() end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshTreasureModal()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = snap and snap.profile or nil
+		local ch = (p and p.currentChapter) or 1
+		local pend = (p and p.treasurePendingCount) or 0
+		local TM = "/ui/IdleHUDGroup/TreasureModal"
+		local sub = _EntityService:GetEntityByPath(TM .. "/SubText")
+		if isvalid(sub) then
+			sub.TextComponent.Text = string.format("현재 Ch.%d 기준 보상 · 보유 상자 %d / 5개 (3장 중 1장 선택!)", ch, pend)
+		end
+		local c1 = _EntityService:GetEntityByPath(TM .. "/CardBtn_1")
+		local c2 = _EntityService:GetEntityByPath(TM .. "/CardBtn_2")
+		local c3 = _EntityService:GetEntityByPath(TM .. "/CardBtn_3")
+		if isvalid(c1) then c1.TextComponent.Text = string.format("주문의 흔적 묶음\n+%s 개", _GameDataLogic:FormatComma(ch * 45)) end
+		if isvalid(c2) then c2.TextComponent.Text = string.format("강화 큐브 꾸러미\n레드 %d · 블랙 %d", math.max(1, math.floor(ch / 5)), math.max(1, math.floor(ch / 8))) end
+		if isvalid(c3) then c3.TextComponent.Text = string.format("황금 메소 주머니\n+%s 메소", _GameDataLogic:FormatNumber(ch * 45000)) end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshHuntProgressBar()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local HPB = "/ui/IdleHUDGroup/HuntProgressBar"
+		local bar = _EntityService:GetEntityByPath(HPB)
+		if not isvalid(bar) then return end
+		
+		local curMap = (snap and snap.currentMapName) or _PlayerDataLogic.TownMapName
+		local mapInfo = _GameDataLogic:GetHuntingMapInfo(curMap)
+		local inBoss = (_UIBossController and _UIBossController.IsInBossBattle) or false
+		if not mapInfo or inBoss then
+			bar.Enable = false
+			return
+		end
+		bar.Enable = true
+		
+		local p = snap and snap.profile or {}
+		local ch = p.currentChapter or 1
+		local st = p.currentStage or 1
+		local kills = p.stageKillCount or 0
+		local target = 3000
+		local ratio = math.max(0.0, math.min(1.0, kills / target))
+		local burn = self:GetChapterBurningStage(ch)
+		local burnTag = (burn > 0) and (" 🔥버닝+" .. tostring(burn * 10) .. "%") or ""
+		
+		local txt = _EntityService:GetEntityByPath(HPB .. "/StageKillText")
+		if isvalid(txt) then
+			txt.TextComponent.Text = string.format("Ch.%d-%d %s%s  |  %s / %s",
+				ch, st, mapInfo.name, burnTag, _GameDataLogic:FormatComma(kills), _GameDataLogic:FormatComma(target))
+		end
+		local fill = _EntityService:GetEntityByPath(HPB .. "/KillFill")
+		if isvalid(fill) and isvalid(fill.UITransformComponent) then
+			fill.UITransformComponent.UIScale = Vector3(ratio, 1, 1)
+		end
+		local btnChal = _EntityService:GetEntityByPath(HPB .. "/BtnChallengeBoss")
+		if isvalid(btnChal) then
+			local ready = (kills >= target)
+			btnChal.Enable = true
+			if isvalid(btnChal.SpriteGUIRendererComponent) then
+				btnChal.SpriteGUIRendererComponent.ImageRUID = ready and "fc2d267b3ff04802accb710137ad2f0d" or "ec842e6ee9554a21b9d0c9df8bfe0b90"
+			end
+			if isvalid(btnChal.TextComponent) then
+				btnChal.TextComponent.Text = ready and (st >= 5 and "🔥 챕터 보스 도전!" or "▶ 다음 단계 돌파!") or "3,000 처치 시 돌파"
+			end
+		end
+		local btnTr = _EntityService:GetEntityByPath(HPB .. "/BtnTreasureBox")
+		if isvalid(btnTr) and isvalid(btnTr.TextComponent) then
+			local gauge = math.floor(p.treasureGauge or 0)
+			local pend = p.treasurePendingCount or 0
+			btnTr.TextComponent.Text = (pend > 0)
+				and string.format("🎁 상자 %d개! (%d%%)", pend, gauge)
+				or string.format("도파민 상자 %d%%", gauge)
+			if isvalid(btnTr.SpriteGUIRendererComponent) then
+				btnTr.SpriteGUIRendererComponent.ImageRUID = (pend > 0) and "fc2d267b3ff04802accb710137ad2f0d" or "bf22c40679d7477392e84fc3093403c6"
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnTickHud(number delta)
+		self.TickAccum = self.TickAccum + delta
+		if self.TickAccum < 0.5 then return end
+		self.TickAccum = 0
+		
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = snap and snap.profile or nil
+		local runeTxt = _EntityService:GetEntityByPath("/ui/IdleHUDGroup/HuntProgressBar/RuneTimerText")
+		if isvalid(runeTxt) and isvalid(runeTxt.TextComponent) then
+			local untilMs = (p and p.runeBuffUntilUtcMs) or 0
+			local remSec = math.floor((untilMs - DateTime.UtcNow.Elapsed) / 1000)
+			if remSec > 0 then
+				runeTxt.TextComponent.Text = string.format("✨ 룬 2x EXP %02d:%02d", math.floor(remSec / 60), remSec % 60)
+			else
+				runeTxt.TextComponent.Text = ""
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void RefreshHuntMapWindow()
+		_GameDataLogic:EnsureInit()
+		local snap = _PlayerDataLogic.ClientSnapshot
+		local p = snap and snap.profile or nil
+		local s = snap and snap.stats or nil
+		local curLv = (p and p.level) or 1
+		local totalSf = (s and s.totalStarforce) or 0
+		local curMap = (snap and snap.currentMapName) or _PlayerDataLogic.TownMapName
+		local HM = "/ui/IdleHUDGroup/HuntingMapWindow"
+		
+		local curMapInfo = _GameDataLogic:GetHuntingMapInfo(curMap)
+		local curLabel = curMapInfo and curMapInfo.name or "헤네시스 (공용 마을)"
+		local infoTxt = _EntityService:GetEntityByPath(HM .. "/InfoText")
+		if isvalid(infoTxt) then
+			infoTxt.TextComponent.Text = string.format("현재: %s | Lv.%d | ★%d | 선택 Stage %d", curLabel, curLv, totalSf, self.SelectedStage)
+		end
+		
+		for st = 1, 5 do
+			local b = _EntityService:GetEntityByPath(HM .. "/BtnStage_" .. tostring(st))
+			if isvalid(b) then
+				local active = (self.SelectedStage == st)
+				if isvalid(b.SpriteGUIRendererComponent) then
+					b.SpriteGUIRendererComponent.ImageRUID = active and "8afc3186f1e04d0a9bed9819de16257c" or "b894b2c7066947fcbf5a9042ce22a82f"
+				end
+				if isvalid(b.TextComponent) then
+					b.TextComponent.FontColor = active and Color(1, 1, 1, 1) or Color(0.24, 0.28, 0.36, 1)
+				end
+			end
+		end
+		
+		local list = _GameDataLogic.HuntingMaps or {}
+		local perPage = 9
+		local maxPage = math.max(1, math.ceil(#list / perPage))
+		if self.HuntMapPage > maxPage then self.HuntMapPage = maxPage end
+		local startIdx = (self.HuntMapPage - 1) * perPage + 1
+		self.DisplayedMaps = {}
+		
+		for i = 1, perPage do
+			local chIdx = startIdx + i - 1
+			local m = list[chIdx]
+			self.DisplayedMaps[i] = m and { chapterIdx = chIdx, map = m } or nil
+			local row = _EntityService:GetEntityByPath(HM .. "/MapRow_" .. tostring(i))
+			if isvalid(row) then
+				if m then
+					row.Enable = true
+					local unlocked = (curLv >= m.reqLevel)
+					local isHere = (curMap == m.mapName)
+					local burn = self:GetChapterBurningStage(chIdx)
+					local lvEnt = _EntityService:GetEntityByPath(HM .. "/MapRow_" .. tostring(i) .. "/LvTag")
+					local nmEnt = _EntityService:GetEntityByPath(HM .. "/MapRow_" .. tostring(i) .. "/MapName")
+					local sfEnt = _EntityService:GetEntityByPath(HM .. "/MapRow_" .. tostring(i) .. "/SfTag")
+					local mvBtn = _EntityService:GetEntityByPath(HM .. "/MapRow_" .. tostring(i) .. "/BtnMove")
+					
+					if isvalid(row.SpriteGUIRendererComponent) then
+						if isHere then row.SpriteGUIRendererComponent.Color = Color(0.84, 0.94, 1.0, 0.96)
+						elseif unlocked then row.SpriteGUIRendererComponent.Color = Color(0.97, 0.98, 1.0, 0.95)
+						else row.SpriteGUIRendererComponent.Color = Color(0.86, 0.88, 0.92, 0.82)
+						end
+					end
+					if isvalid(lvEnt) then
+						lvEnt.TextComponent.Text = string.format("Ch.%d Lv.%d", chIdx, m.reqLevel)
+						lvEnt.TextComponent.FontColor = unlocked and Color(0.10, 0.34, 0.76, 1) or Color(0.46, 0.50, 0.56, 1)
+					end
+					if isvalid(nmEnt) then
+						local burnStr = (burn > 0) and (" 🔥+" .. tostring(burn * 10) .. "%") or ""
+						nmEnt.TextComponent.Text = m.name .. burnStr
+						nmEnt.TextComponent.FontColor = (burn > 0 and unlocked) and Color(0.78, 0.22, 0.06, 1) or (unlocked and Color(0.10, 0.14, 0.22, 1) or Color(0.46, 0.50, 0.56, 1))
+					end
+					if isvalid(sfEnt) then
+						if (m.reqStarforce or 0) > 0 then
+							sfEnt.TextComponent.Text = "★" .. tostring(m.reqStarforce) .. (totalSf >= m.reqStarforce and " ✓" or "")
+							sfEnt.TextComponent.FontColor = (totalSf >= m.reqStarforce) and Color(0.12, 0.58, 0.22, 1) or Color(0.86, 0.36, 0.06, 1)
+						else
+							sfEnt.TextComponent.Text = m.area or ""
+							sfEnt.TextComponent.FontColor = Color(0.42, 0.48, 0.58, 1)
+						end
+					end
+					if isvalid(mvBtn) then
+						if isHere then
+							mvBtn.SpriteGUIRendererComponent.ImageRUID = "bf22c40679d7477392e84fc3093403c6"
+							mvBtn.TextComponent.Text = "사냥 중 ✓"
+						elseif unlocked then
+							mvBtn.SpriteGUIRendererComponent.ImageRUID = "286bd3d23b9142fcb79bc626cabff215"
+							mvBtn.TextComponent.Text = "St." .. tostring(self.SelectedStage) .. " 이동 ▶"
+						else
+							mvBtn.SpriteGUIRendererComponent.ImageRUID = "ec842e6ee9554a21b9d0c9df8bfe0b90"
+							mvBtn.TextComponent.Text = "잠금 Lv." .. tostring(m.reqLevel)
+						end
+					end
+				else
+					row.Enable = false
+				end
+			end
+		end
+		
+		local pgTxt = _EntityService:GetEntityByPath(HM .. "/MapPageText")
+		if isvalid(pgTxt) then pgTxt.TextComponent.Text = tostring(self.HuntMapPage) .. " / " .. tostring(maxPage) end
+	end
+
+end

@@ -277,6 +277,12 @@ script AutoHuntComponent extends Component
 		elseif k == KeyboardKey.M then
 			if _UIIdleManager then _UIIdleManager:ToggleWindow("huntmap") end
 			return
+		elseif k == KeyboardKey.B then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("shop") end
+			return
+		elseif k == KeyboardKey.T then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("boss") end
+			return
 		elseif k == KeyboardKey.C then
 			if _UIIdleManager then
 				_UIIdleManager.CurrentTab = "cube"
