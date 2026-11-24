@@ -1,0 +1,321 @@
+@Component
+script AutoHuntComponent extends Component
+
+	property boolean AutoEnabled = false
+
+	@HideFromInspector
+	property number ManualPauseUntil = 0
+
+	@HideFromInspector
+	property number LastAttackTime = 0
+
+	@HideFromInspector
+	property number LastJumpTime = 0
+
+	@HideFromInspector
+	property integer CastToggle = 0
+
+	@HideFromInspector
+	property any ClientCooldowns = nil
+
+	@ExecSpace("ClientOnly")
+	method boolean IsLocalPlayer()
+		return isvalid(_UserService.LocalPlayer) and self.Entity == _UserService.LocalPlayer
+	end
+
+	@ExecSpace("ClientOnly")
+	method integer GetCurrentJobTier()
+		local snap = _PlayerDataLogic and _PlayerDataLogic.ClientSnapshot or nil
+		return (snap and snap.profile and snap.profile.jobTier) or 0
+	end
+
+	@ExecSpace("ClientOnly")
+	method any GetTierInfo()
+		_GameDataLogic:EnsureInit()
+		return _GameDataLogic:GetJobTierInfo(self:GetCurrentJobTier())
+	end
+
+	@ExecSpace("ClientOnly")
+	method number GetRemainingCooldown(string skillId)
+		if not self.ClientCooldowns then return 0 end
+		local readyAt = self.ClientCooldowns[skillId] or 0
+		return math.max(0, readyAt - _UtilLogic.ElapsedSeconds)
+	end
+
+	@ExecSpace("ClientOnly")
+	method boolean TryCastSkillById(string skillId, number dir)
+		_GameDataLogic:EnsureInit()
+		local skill = _GameDataLogic:GetSkillInfo(skillId)
+		if not skill or skill.isPassive then return false end
+		
+		local tier = self:GetCurrentJobTier()
+		if tier < (skill.minTier or 0) then
+			if _UIToast then
+				_UIToast:ShowMessage("🔒 [" .. skill.name .. "]은(는) " .. tostring(skill.minTier) .. "차 전직 후 사용할 수 있습니다!")
+			end
+			return false
+		end
+		
+		local now = _UtilLogic.ElapsedSeconds
+		if not self.ClientCooldowns then self.ClientCooldowns = {} end
+		local readyAt = self.ClientCooldowns[skill.id] or 0
+		if now < readyAt then return false end
+		
+		local attackComp = self.Entity.PlayerAttack
+		if not isvalid(attackComp) then return false end
+		
+		self.ClientCooldowns[skill.id] = now + (skill.cooldown or 0.5)
+		self.LastAttackTime = now
+		attackComp:RequestCastSkill(skill.id, dir)
+		return true
+	end
+
+	@ExecSpace("ClientOnly")
+	method void CastSkillSlot(integer slotNum)
+		if not self:IsLocalPlayer() then return end
+		local tierInfo = self:GetTierInfo()
+		local slots = tierInfo.activeSlots or { "power_strike", "slash_blast", "brandish", "shout", "raging_blow" }
+		local skillId = slots[slotNum] or slots[1]
+		local controller = self.Entity.PlayerControllerComponent
+		local dir = isvalid(controller) and controller.LookDirectionX or 1
+		self:TryCastSkillById(skillId, dir)
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SyncWalkState(boolean isMoving)
+		local st = self.Entity.StateComponent
+		if not isvalid(st) then return end
+		local rigid = self.Entity.RigidbodyComponent
+		local onGround = (not isvalid(rigid)) or rigid:IsOnGround()
+		local cur = st.CurrentStateName
+		local now = _UtilLogic.ElapsedSeconds
+		
+		if not onGround or cur == "JUMP" or cur == "FALL" or cur == "CLIMB" then return end
+		if (now - self.LastAttackTime) < 0.25 then return end
+		
+		if isMoving then
+			if cur ~= "MOVE" then st:ChangeState("MOVE") end
+		else
+			if cur == "MOVE" then st:ChangeState("IDLE") end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ToggleAutoHunt()
+		if not self:IsLocalPlayer() then return end
+		self.AutoEnabled = not self.AutoEnabled
+		self.ManualPauseUntil = 0
+		if not self.AutoEnabled and isvalid(self.Entity.MovementComponent) then
+			self.Entity.MovementComponent:Stop()
+			self:SyncWalkState(false)
+		end
+		if _UIToast then
+			_UIToast:ShowMessage(self.AutoEnabled and "자동사냥 ON (자동 스킬 연계 + 3펫 자석줍기 활성화!)" or "자동사냥 OFF")
+		end
+		if _UIIdleManager then
+			_UIIdleManager:RefreshHudButtons()
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method Entity FindBestMonsterOnFloor(Vector3 myPos)
+		local map = self.Entity.CurrentMap
+		if not isvalid(map) then return nil end
+		
+		local bestSameFloor = nil
+		local bestSameDist = 999999
+		local bestAny = nil
+		local bestAnyScore = 999999
+		
+		local children = map.Children
+		for i = 1, #children do
+			local child = children[i]
+			if isvalid(child) and child.Enable and child.Visible and isvalid(child.Monster) and not child.Monster.IsDead then
+				local mPos = child.TransformComponent.WorldPosition
+				local dx = math.abs(mPos.x - myPos.x)
+				local dy = math.abs(mPos.y - myPos.y)
+				if dy <= 1.35 and dx < bestSameDist then
+					bestSameDist = dx
+					bestSameFloor = child
+				end
+				local score = dx + dy * 2.5
+				if score < bestAnyScore then
+					bestAnyScore = score
+					bestAny = child
+				end
+			end
+		end
+		
+		return bestSameFloor or bestAny
+	end
+
+	@ExecSpace("ClientOnly")
+	method string PickBestAutoSkillId(integer tier, number absDx)
+		local now = _UtilLogic.ElapsedSeconds
+		if not self.ClientCooldowns then self.ClientCooldowns = {} end
+		local isReady = function(sid)
+			return now >= (self.ClientCooldowns[sid] or 0)
+		end
+		
+		if tier >= 4 then
+			if isReady("incising") then return "incising" end
+			if isReady("shout") then return "shout" end
+			return "raging_blow"
+		elseif tier >= 3 then
+			if isReady("shout") then return "shout" end
+			if isReady("coma") then return "coma" end
+			return "brandish"
+		elseif tier >= 2 then
+			return "brandish"
+		elseif tier >= 1 then
+			if self.CastToggle % 2 == 0 then return "slash_blast" end
+			return "power_strike"
+		end
+		return "power_strike"
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnUpdate(number delta)
+		if not self:IsLocalPlayer() then return end
+		if not self.AutoEnabled then return end
+		
+		local now = _UtilLogic.ElapsedSeconds
+		if now < self.ManualPauseUntil then return end
+		
+		local movement = self.Entity.MovementComponent
+		local controller = self.Entity.PlayerControllerComponent
+		if not isvalid(movement) or not isvalid(controller) then return end
+		
+		local myPos = self.Entity.TransformComponent.WorldPosition
+		
+		-- 1) Only walk to loot manually if Magnet Pet (자석펫) is turned OFF!
+		--    When Magnet Pet (3-Pet Squad) is ON, pets vacuum ALL drops automatically so player focuses 100% on combat!
+		if _CombatVisualLogic and not _CombatVisualLogic.MagnetPetEnabled then
+			local drop = _CombatVisualLogic:FindNearestIdleDrop(myPos, 4.5, 1.35)
+			if drop then
+				local ddx = drop.landX - myPos.x
+				if math.abs(ddx) > 0.32 then
+					local dDir = (ddx >= 0) and 1 or -1
+					controller.LookDirectionX = dDir
+					movement:MoveToDirection(Vector2(dDir, 0), delta)
+					self:SyncWalkState(true)
+					return
+				end
+			end
+		end
+		
+		-- 2) Engage nearest monster on floor
+		local tier = self:GetCurrentJobTier()
+		local tierInfo = self:GetTierInfo()
+		local engageRange = tierInfo.engageRange or 2.4
+		local target = self:FindBestMonsterOnFloor(myPos)
+		if not isvalid(target) then
+			movement:Stop()
+			self:SyncWalkState(false)
+			return
+		end
+		
+		local targetPos = target.TransformComponent.WorldPosition
+		local dx = targetPos.x - myPos.x
+		local dy = targetPos.y - myPos.y
+		local dir = (dx >= 0) and 1 or -1
+		
+		if math.abs(dx) > 0.25 then
+			controller.LookDirectionX = dir
+		end
+		
+		local stopDist = math.max(0.85, engageRange - 0.65)
+		if math.abs(dx) > stopDist then
+			movement:MoveToDirection(Vector2(dir, 0), delta)
+			self:SyncWalkState(true)
+		else
+			movement:Stop()
+			self:SyncWalkState(false)
+		end
+		
+		-- Gentle platform hop only when target is clearly above/below
+		if dy > 1.05 and (now - self.LastJumpTime) > 1.2 then
+			self.LastJumpTime = now
+			movement:Jump()
+		elseif dy < -1.4 and (now - self.LastJumpTime) > 1.3 then
+			self.LastJumpTime = now
+			movement:DownJump()
+		end
+		
+		-- Cast highest unlocked Hero skill cleanly
+		if math.abs(dx) <= engageRange + 0.4 and math.abs(dy) <= 1.55 then
+			if (now - self.LastAttackTime) >= 0.48 then
+				local skillId = self:PickBestAutoSkillId(tier, math.abs(dx))
+				if self:TryCastSkillById(skillId, dir) then
+					self.CastToggle = self.CastToggle + 1
+				end
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	@EventSender("Service", "InputService")
+	handler HandleKeyDownEvent(KeyDownEvent event)
+		if not self:IsLocalPlayer() then return end
+		local k = event.key
+		
+		if k == KeyboardKey.F then
+			self:ToggleAutoHunt()
+			return
+		elseif k == KeyboardKey.E then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("equip") end
+			return
+		elseif k == KeyboardKey.I then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("inven") end
+			return
+		elseif k == KeyboardKey.S then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("stat") end
+			return
+		elseif k == KeyboardKey.K then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("skill") end
+			return
+		elseif k == KeyboardKey.M then
+			if _UIIdleManager then _UIIdleManager:ToggleWindow("huntmap") end
+			return
+		elseif k == KeyboardKey.C then
+			if _UIIdleManager then
+				_UIIdleManager.CurrentTab = "cube"
+				_UIIdleManager:SetEnhanceOpen(true)
+			end
+			return
+		elseif k == KeyboardKey.U then
+			if _UIIdleManager then _UIIdleManager:ToggleEnhancePanel() end
+			return
+		elseif k == KeyboardKey.J then
+			_PlayerDataLogic:RequestAdvanceJob()
+			return
+		elseif k == KeyboardKey.Escape then
+			if _UIIdleManager then _UIIdleManager:CloseAllWindows() end
+			return
+		elseif k == KeyboardKey.Z then
+			if _CombatVisualLogic then _CombatVisualLogic:TryPickupNearby(2.0, 1.5) end
+			return
+		elseif k == KeyboardKey.P then
+			if _CombatVisualLogic then _CombatVisualLogic:ToggleMagnetPet() end
+			return
+		elseif k == KeyboardKey.Alpha1 then self:CastSkillSlot(1); self.ManualPauseUntil = _UtilLogic.ElapsedSeconds + 1.2; return
+		elseif k == KeyboardKey.Alpha2 then self:CastSkillSlot(2); self.ManualPauseUntil = _UtilLogic.ElapsedSeconds + 1.2; return
+		elseif k == KeyboardKey.Alpha3 then self:CastSkillSlot(3); self.ManualPauseUntil = _UtilLogic.ElapsedSeconds + 1.2; return
+		elseif k == KeyboardKey.Alpha4 then self:CastSkillSlot(4); self.ManualPauseUntil = _UtilLogic.ElapsedSeconds + 1.2; return
+		elseif k == KeyboardKey.Alpha5 then self:CastSkillSlot(5); self.ManualPauseUntil = _UtilLogic.ElapsedSeconds + 1.2; return
+		end
+		
+		if self.AutoEnabled then
+			if k == KeyboardKey.LeftArrow
+				or k == KeyboardKey.RightArrow
+				or k == KeyboardKey.UpArrow
+				or k == KeyboardKey.DownArrow
+				or k == KeyboardKey.Space
+				or k == KeyboardKey.LeftAlt
+				or k == KeyboardKey.LeftControl then
+				self.ManualPauseUntil = _UtilLogic.ElapsedSeconds + 2.0
+			end
+		end
+	end
+
+end

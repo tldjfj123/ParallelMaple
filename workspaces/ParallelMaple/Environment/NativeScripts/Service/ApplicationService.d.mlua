@@ -1,0 +1,44 @@
+---@sealed
+---@description "Provides application-related functions."
+@Service
+script ApplicationService extends Service
+
+	---@description "Returns the version information of the currently executing application."
+	---@sealed
+	@ExecSpace("ClientOnly")
+	method string GetApplicationVersion() end
+
+	---@description "Returns the amount of memory used by a specific category. The return value given is in bytes."
+	---@sealed
+	@ExecSpace("ClientOnly")
+	method integer GetMemoryUsage(ApplicationMemoryCategory category) end
+
+	---@description "Returns the total amount of memory used by the application from the operating system. The return value is given in bytes."
+	---@sealed
+	@ExecSpace("ClientOnly")
+	method integer GetTotalMemoryUsage() end
+
+	---@description "Returns whether the current environment is a mobile platform."
+	---@sealed
+	@ExecSpace("ClientOnly")
+	method boolean IsMobilePlatform() end
+
+	---@description "Returns whether the current platform is a PC platform. When running in a web environment, returns true if the web browser is running on a PC, and false otherwise."
+	---@sealed
+	@ExecSpace("ClientOnly")
+	method boolean IsPCPlatform() end
+
+	---@description "Returns whether the current application is running in a web environment."
+	---@sealed
+	@ExecSpace("ClientOnly")
+	method boolean IsWebRuntime() end
+
+	emitter EmitApplicationFocusInEvent(ApplicationFocusInEvent event) end
+
+	emitter EmitApplicationFocusOutEvent(ApplicationFocusOutEvent event) end
+
+	emitter EmitWindowsMenuOpenedEvent(WindowsMenuOpenedEvent event) end
+
+	emitter EmitWindowsMenuClosedEvent(WindowsMenuClosedEvent event) end
+
+end

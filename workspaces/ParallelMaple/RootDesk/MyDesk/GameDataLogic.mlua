@@ -1,0 +1,1338 @@
+@Logic
+script GameDataLogic extends Logic
+
+	property any SlotOrder = nil
+
+	property any SlotLabels = nil
+
+	property any Items = nil
+
+	property any Potions = nil
+
+	property any EtcLoots = nil
+
+	property any Scrolls = nil
+
+	property any StarforceTable = nil
+
+	property any Cubes = nil
+
+	property any PotentialGrades = nil
+
+	property any PotentialGradeIndex = nil
+
+	property any PotentialPools = nil
+
+	property any JobTiers = nil
+
+	property any Skills = nil
+
+	property any HuntingMaps = nil
+
+	property integer MaxLevel = 200
+
+	property boolean Initialized = false
+
+	method void EnsureInit()
+		if self.Initialized then
+			return
+		end
+		self.Initialized = true
+		
+		self.SlotOrder = {
+			"Weapon", "SubWeapon", "Emblem",
+			"Hat", "Top", "Shoes", "Gloves", "Ring1"
+		}
+		
+		self.SlotLabels = {
+			Weapon = "무기",
+			SubWeapon = "보조무기",
+			Emblem = "엠블렘",
+			Hat = "모자",
+			Top = "상의",
+			Shoes = "신발",
+			Gloves = "장갑",
+			Ring1 = "반지",
+		}
+		
+		-- Fixed Single Class: 전사 (히어로 계보: 0차 초보자 -> 1차 검사 -> 2차 파이터 -> 3차 크루세이더 -> 4차 히어로)
+		self.JobTiers = {
+			[0] = {
+				tier = 0,
+				id = "beginner",
+				name = "초보자 (전사)",
+				shortName = "초보자",
+				reqLevel = 1,
+				maxCombo = 0,
+				bonusStr = 0,
+				bonusAtt = 0,
+				bonusFinalDmg = 0,
+				bonusCrit = 0,
+				bonusExpPct = 0,
+				bonusMesoPct = 0,
+				engageRange = 2.0,
+				skills = { "power_strike" },
+				activeSlots = { "power_strike", "slash_blast", "brandish", "shout", "raging_blow" },
+			},
+			[1] = {
+				tier = 1,
+				id = "swordman",
+				name = "검사 (1차)",
+				shortName = "검사",
+				reqLevel = 10,
+				maxCombo = 0,
+				bonusStr = 25,
+				bonusAtt = 15,
+				bonusFinalDmg = 10,
+				bonusCrit = 5,
+				bonusExpPct = 5,
+				bonusMesoPct = 5,
+				engageRange = 2.4,
+				skills = { "power_strike", "slash_blast", "iron_body" },
+				activeSlots = { "power_strike", "slash_blast", "brandish", "shout", "raging_blow" },
+			},
+			[2] = {
+				tier = 2,
+				id = "fighter",
+				name = "파이터 (2차)",
+				shortName = "파이터",
+				reqLevel = 30,
+				maxCombo = 5,
+				bonusStr = 65,
+				bonusAtt = 45,
+				bonusFinalDmg = 25,
+				bonusCrit = 12,
+				bonusExpPct = 8,
+				bonusMesoPct = 8,
+				engageRange = 2.8,
+				skills = { "brandish", "combo_attack", "rage" },
+				activeSlots = { "power_strike", "slash_blast", "brandish", "shout", "raging_blow" },
+			},
+			[3] = {
+				tier = 3,
+				id = "crusader",
+				name = "크루세이더 (3차)",
+				shortName = "크루세이더",
+				reqLevel = 60,
+				maxCombo = 7,
+				bonusStr = 140,
+				bonusAtt = 95,
+				bonusFinalDmg = 45,
+				bonusCrit = 20,
+				bonusExpPct = 10,
+				bonusMesoPct = 10,
+				engageRange = 3.2,
+				skills = { "coma", "shout", "combo_synergy" },
+				activeSlots = { "brandish", "coma", "shout", "raging_blow", "incising" },
+			},
+			[4] = {
+				tier = 4,
+				id = "hero",
+				name = "히어로 (4차)",
+				shortName = "히어로",
+				reqLevel = 100,
+				maxCombo = 10,
+				bonusStr = 280,
+				bonusAtt = 210,
+				bonusFinalDmg = 85,
+				bonusCrit = 30,
+				bonusExpPct = 15,
+				bonusMesoPct = 15,
+				engageRange = 3.6,
+				skills = { "raging_blow", "incising", "maple_warrior" },
+				activeSlots = { "brandish", "coma", "shout", "raging_blow", "incising" },
+			},
+		}
+		
+		-- Hero 1st ~ 4th Job Authentic MapleStory Skills
+		-- (1st job verified; 2nd/3rd/4th job RUIDs will be verified in Play Mode probe)
+		self.Skills = {
+			-- 1차 검사 (Swordman)
+			power_strike = {
+				id = "power_strike",
+				name = "파워 스트라이크",
+				shortName = "파스",
+				tier = 1,
+				minTier = 0,
+				isPassive = false,
+				desc = "강력한 일격으로 전방의 적을 베어냅니다.",
+				iconRuid = "5da395a123df4fdbb284923f34e835eb",
+				bodyAction = "swingO1",
+				dmgMult = 1.90,
+				hitCount = 1,
+				bonusCrit = 0.05,
+				cooldown = 0.50,
+				range = 2.0,
+				boxW = 2.2, boxH = 1.5, offsetX = 0.9, offsetY = 0.55,
+				castEffect = "aae5027da69747d3b2cd2bd0f26987e0",
+				hitEffect = "88a17d40d6e34abd948cac09724b22fa",
+				castSound = "e0178f48602742c0bd8b295fdc27261c",
+				hitSound = "0b9adf262d544256adb5bff20eaa4fe1",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			slash_blast = {
+				id = "slash_blast",
+				name = "슬래시 블러스트",
+				shortName = "슬블",
+				tier = 1,
+				minTier = 1,
+				isPassive = false,
+				desc = "검기를 넓게 휘둘러 다수의 적을 동시 타격합니다.",
+				iconRuid = "a4d0747c0d4b4e0685ab4cc19ce4e494",
+				bodyAction = "swingO2",
+				dmgMult = 1.65,
+				hitCount = 1,
+				bonusCrit = 0.05,
+				cooldown = 0.62,
+				range = 2.7,
+				boxW = 3.2, boxH = 1.7, offsetX = 1.2, offsetY = 0.60,
+				castEffect = "a0ed97b38ce04e0ba8c2b6141a859d31",
+				hitEffect = "c3b6f68c02ff44a7b1b05305437759a8",
+				castSound = "ca35cb7d0652411395a5bb90a5beecd3",
+				hitSound = "afbb81b51fed47eaaee26cc403d59ccf",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			iron_body = {
+				id = "iron_body",
+				name = "아이언 바디 (패시브)",
+				shortName = "아이언",
+				tier = 1,
+				minTier = 1,
+				isPassive = true,
+				desc = "전사의 기초 체력을 단련하여 STR +25, 공격력 +15, 최대 HP 상승.",
+				iconRuid = "4cc5ffc272224edc809a792b8efa16e3",
+				dmgMult = 0, hitCount = 0, cooldown = 0, range = 0,
+				boxW = 0, boxH = 0, offsetX = 0, offsetY = 0,
+			},
+		
+			-- 2차 파이터 (Fighter)
+			brandish = {
+				id = "brandish",
+				name = "브랜디쉬",
+				shortName = "브랜디쉬",
+				tier = 2,
+				minTier = 2,
+				isPassive = false,
+				desc = "검을 두 번 힘껏 휘둘러 전방 다수의 적을 2연타합니다.",
+				iconRuid = "3072081667d841c9be3bda01ee36688f",
+				bodyAction = "swingO3",
+				dmgMult = 1.55,
+				hitCount = 2,
+				bonusCrit = 0.08,
+				cooldown = 0.60,
+				range = 3.0,
+				boxW = 3.5, boxH = 1.9, offsetX = 1.4, offsetY = 0.65,
+				castEffect = "38e9351c34b843ddbcc191c762e7464c",
+				hitEffect = "4dcaf17adce54bc0849f47c7ec5da428",
+				castSound = "891c732ced0746f4b5676990802ab5af",
+				hitSound = "f0c0c4016cf04d0d98886227cab56561",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			combo_attack = {
+				id = "combo_attack",
+				name = "콤보 어택 (패시브)",
+				shortName = "콤보",
+				tier = 2,
+				minTier = 2,
+				isPassive = true,
+				desc = "공격 적중 시 콤보 카운터(최대 5개)가 쌓여 개당 최종 데미지 +6%.",
+				iconRuid = "71bcdfc4844043738fa9f30c265a93b9",
+				dmgMult = 0, hitCount = 0, cooldown = 0, range = 0,
+				boxW = 0, boxH = 0, offsetX = 0, offsetY = 0,
+			},
+			rage = {
+				id = "rage",
+				name = "분노 (패시브)",
+				shortName = "분노",
+				tier = 2,
+				minTier = 2,
+				isPassive = true,
+				desc = "전투의 분노를 끌어올려 공격력 +45, 크리티컬 확률 +12% 증가.",
+				iconRuid = "875b9f4e7f744145865d8a9225a05eec",
+				dmgMult = 0, hitCount = 0, cooldown = 0, range = 0,
+				boxW = 0, boxH = 0, offsetX = 0, offsetY = 0,
+			},
+		
+			-- 3차 크루세이더 (Crusader)
+			coma = {
+				id = "coma",
+				name = "코마",
+				shortName = "코마",
+				tier = 3,
+				minTier = 3,
+				isPassive = false,
+				desc = "콤보의 힘을 응축해 주변 적에게 강력한 3연타 충격파를 방출합니다.",
+				iconRuid = "4e1bc0403dc2491fa3e3e73935238189",
+				bodyAction = "swingO2",
+				dmgMult = 1.85,
+				hitCount = 3,
+				bonusCrit = 0.12,
+				cooldown = 1.80,
+				range = 3.2,
+				boxW = 4.2, boxH = 2.2, offsetX = 1.0, offsetY = 0.70,
+				castEffect = "8f260fa8eb49460691544a8806e80342",
+				hitEffect = "8d638b1a7d5a4fac9de02f4c875ab956",
+				castSound = "a5cef85ea78443e59ce51f883693549d",
+				hitSound = "15cbdb9c56db4e87a379ba631e06a3d1",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			shout = {
+				id = "shout",
+				name = "샤우트",
+				shortName = "샤우트",
+				tier = 3,
+				minTier = 3,
+				isPassive = false,
+				desc = "우렁찬 포효로 넓은 범위의 몬스터를 4연타로 쓸어버립니다.",
+				iconRuid = "914bcd411578450ba1b5b09307f6172b",
+				bodyAction = "swingO1",
+				dmgMult = 1.60,
+				hitCount = 4,
+				bonusCrit = 0.10,
+				cooldown = 3.00,
+				range = 3.6,
+				boxW = 5.4, boxH = 2.6, offsetX = 0.0, offsetY = 0.80,
+				castEffect = "dcdee298a8f14efea695553e8e063025",
+				hitEffect = "3d6fb8d746614f7f97e8057b62864be0",
+				castSound = "ee24a27a5d814754b02c88b03789d7af",
+				hitSound = "9f9eb5ebae9946f484146117a9b9314a",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			combo_synergy = {
+				id = "combo_synergy",
+				name = "콤보 시너지 (패시브)",
+				shortName = "시너지",
+				tier = 3,
+				minTier = 3,
+				isPassive = true,
+				desc = "최대 콤보 카운터 7개 확장 · STR +140 · 최종 데미지 +45%.",
+				iconRuid = "71bcdfc4844043738fa9f30c265a93b9",
+				dmgMult = 0, hitCount = 0, cooldown = 0, range = 0,
+				boxW = 0, boxH = 0, offsetX = 0, offsetY = 0,
+			},
+		
+			-- 4차 히어로 (Hero)
+			raging_blow = {
+				id = "raging_blow",
+				name = "레이징 블로우",
+				shortName = "레블",
+				tier = 4,
+				minTier = 4,
+				isPassive = false,
+				desc = "히어로의 주력기! 전방의 적을 맹렬한 5연타 검기로 난도질합니다.",
+				iconRuid = "716beb69f05a4282a352b4b7239e93c0",
+				bodyAction = "swingO3",
+				dmgMult = 2.15,
+				hitCount = 5,
+				bonusCrit = 0.20,
+				cooldown = 0.56,
+				range = 3.6,
+				boxW = 4.4, boxH = 2.2, offsetX = 1.7, offsetY = 0.70,
+				castEffect = "71d8513c51fc48c49609837f3d15160b",
+				hitEffect = "7d4fd3b71abd42d6b37f49652d13a8d7",
+				castSound = "aa92fddf0e404d35bf6406cef6bc7ad5",
+				hitSound = "d3df4514828f4159a509a7e15a5d5bb2",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			incising = {
+				id = "incising",
+				name = "인사이징",
+				shortName = "인사이징",
+				tier = 4,
+				minTier = 4,
+				isPassive = false,
+				desc = "치명적인 상처를 남기는 광역 4연타 필살 참격을 가합니다.",
+				iconRuid = "f3d5426ad86b40c6bc134753d3939145",
+				bodyAction = "swingO2",
+				dmgMult = 2.65,
+				hitCount = 4,
+				bonusCrit = 0.35,
+				cooldown = 4.00,
+				range = 3.8,
+				boxW = 4.8, boxH = 2.4, offsetX = 1.8, offsetY = 0.75,
+				castEffect = "f748f7bb09414111bd194abfa7d510b1",
+				hitEffect = "138f808d34154727ab2c5f705d025be6",
+				castSound = "1595d17f21e54eb4ac1eb88c8344c8b7",
+				hitSound = "e3dedc59193f4ca586a1248794391ece",
+				effectOffsetX = 0.0, effectOffsetY = 0.0, effectScale = 1.0,
+			},
+			maple_warrior = {
+				id = "maple_warrior",
+				name = "어드밴스드 콤보 & 메이플 용사",
+				shortName = "메용",
+				tier = 4,
+				minTier = 4,
+				isPassive = true,
+				desc = "최대 콤보 10개 · 올스탯 +15% · 공격력 +210 · 추가 경험치/메소 +15%.",
+				iconRuid = "0246edc3f4244fd3b3bfdb5aef207c72",
+				dmgMult = 0, hitCount = 0, cooldown = 0, range = 0,
+				boxW = 0, boxH = 0, offsetX = 0, offsetY = 0,
+			},
+		}
+		
+		-- ALL Hunting Grounds from docs/사냥터.md (Lv. 1 ~ 200, Authentic 1x KMS Rates!)
+		self.HuntingMaps = {
+			{
+				mapName = "HenesysHunt1",
+				name = "헤네시스 사냥터 1",
+				area = "헤네시스",
+				reqLevel = 1, maxLevel = 10, reqStarforce = 0,
+				mobHp = 75, mobExp = 14, mobMeso = 18, mobTrace = 1,
+			},
+			{
+				mapName = "Hunt01_StrayDog",
+				name = "들개들의 싸움터 1",
+				area = "새비지 터미널",
+				reqLevel = 10, maxLevel = 30, reqStarforce = 0,
+				mobHp = 280, mobExp = 42, mobMeso = 65, mobTrace = 1,
+			},
+			{
+				mapName = "Hunt02_GoldBeach",
+				name = "골드비치 (해변가 풀숲 1)",
+				area = "골드비치",
+				reqLevel = 30, maxLevel = 46, reqStarforce = 0,
+				mobHp = 950, mobExp = 155, mobMeso = 140, mobTrace = 2,
+			},
+			{
+				mapName = "Hunt03_WildBoar",
+				name = "와일드보어의 땅",
+				area = "페리온",
+				reqLevel = 35, maxLevel = 46, reqStarforce = 0,
+				mobHp = 1350, mobExp = 210, mobMeso = 175, mobTrace = 2,
+			},
+			{
+				mapName = "Hunt04_SilentSwamp",
+				name = "조용한 습지",
+				area = "슬리피우드",
+				reqLevel = 46, maxLevel = 61, reqStarforce = 0,
+				mobHp = 2800, mobExp = 480, mobMeso = 260, mobTrace = 2,
+			},
+			{
+				mapName = "Hunt05_SkyStair",
+				name = "하늘계단 1",
+				area = "오르비스",
+				reqLevel = 51, maxLevel = 61, reqStarforce = 0,
+				mobHp = 3800, mobExp = 650, mobMeso = 310, mobTrace = 2,
+			},
+			{
+				mapName = "Hunt06_IceValley",
+				name = "얼음 골짜기 2",
+				area = "엘나스",
+				reqLevel = 61, maxLevel = 66, reqStarforce = 0,
+				mobHp = 6200, mobExp = 950, mobMeso = 400, mobTrace = 3,
+			},
+			{
+				mapName = "Hunt07_Tent",
+				name = "유랑단의 텐트",
+				area = "아리안트",
+				reqLevel = 66, maxLevel = 75, reqStarforce = 0,
+				mobHp = 9200, mobExp = 1350, mobMeso = 490, mobTrace = 3,
+			},
+			{
+				mapName = "Hunt08_LabC2",
+				name = "관계자 외 출입금지",
+				area = "마가티아",
+				reqLevel = 75, maxLevel = 83, reqStarforce = 0,
+				mobHp = 14500, mobExp = 2200, mobMeso = 640, mobTrace = 3,
+			},
+			{
+				mapName = "Hunt09_SkyNest3",
+				name = "하늘둥지 3",
+				area = "리프레",
+				reqLevel = 83, maxLevel = 100, reqStarforce = 0,
+				mobHp = 26000, mobExp = 4400, mobMeso = 920, mobTrace = 4,
+			},
+			{
+				mapName = "Hunt10_LudiClock",
+				name = "루디브리엄 시계탑 (게이트키퍼)",
+				area = "시계탑 최하층",
+				reqLevel = 100, maxLevel = 120, reqStarforce = 30,
+				mobHp = 65000, mobExp = 12500, mobMeso = 1450, mobTrace = 5,
+			},
+			{
+				mapName = "Hunt11_ElnathMine",
+				name = "엘나스 폐광 (주니어 불독)",
+				area = "시련의 동굴 2",
+				reqLevel = 120, maxLevel = 140, reqStarforce = 55,
+				mobHp = 125000, mobExp = 28000, mobMeso = 2100, mobTrace = 6,
+			},
+			{
+				mapName = "Hunt12_KerningTower",
+				name = "커닝타워 (2층 카페 4)",
+				area = "커닝타워",
+				reqLevel = 140, maxLevel = 160, reqStarforce = 80,
+				mobHp = 240000, mobExp = 68000, mobMeso = 3200, mobTrace = 7,
+			},
+			{
+				mapName = "Hunt13_Kritias",
+				name = "크리티아스 (비탄의 숲 5)",
+				area = "크리티아스",
+				reqLevel = 160, maxLevel = 180, reqStarforce = 0,
+				mobHp = 410000, mobExp = 145000, mobMeso = 4600, mobTrace = 8,
+			},
+			{
+				mapName = "Hunt14_OmegaH01",
+				name = "지구방위본부 (복도 H01)",
+				area = "지구방위본부",
+				reqLevel = 160, maxLevel = 180, reqStarforce = 140,
+				mobHp = 520000, mobExp = 210000, mobMeso = 5800, mobTrace = 9,
+			},
+			{
+				mapName = "Hunt15_Armory2",
+				name = "기사단의 요새 (무기고 2)",
+				area = "미래의 문",
+				reqLevel = 160, maxLevel = 180, reqStarforce = 0,
+				mobHp = 450000, mobExp = 168000, mobMeso = 5000, mobTrace = 8,
+			},
+			{
+				mapName = "Hunt16_Excavation2",
+				name = "버려진 발굴지역 2",
+				area = "황혼의 페리온",
+				reqLevel = 180, maxLevel = 200, reqStarforce = 0,
+				mobHp = 780000, mobExp = 385000, mobMeso = 7400, mobTrace = 10,
+			},
+			{
+				mapName = "Hunt17_Excavation4",
+				name = "버려진 발굴지역 4",
+				area = "황혼의 페리온",
+				reqLevel = 180, maxLevel = 200, reqStarforce = 0,
+				mobHp = 860000, mobExp = 430000, mobMeso = 8200, mobTrace = 12,
+			},
+		}
+		
+		-- Master equipment table (Maple Inven class2=101 Warrior/Hero Lv.30~200, 100% visually verified icons!)
+		self.Items = {
+			-- Weapons: 1H Swords (한손검)
+			gladius = {
+				id = "gladius",
+				name = "글라디우스",
+				slot = "Weapon",
+				avatarItemRuid = "cb774c76c3a54b3f8983eee569100fb8",
+				iconRuid = "thumbnail://cb774c76c3a54b3f8983eee569100fb8",
+				dropSpriteRuid = "2e0252d9351b41799f176c4e2b3ea99f",
+				reqLevel = 30,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 4,
+				baseAtt = 47,
+				baseMaxHp = 0,
+			},
+			sparta = {
+				id = "sparta",
+				name = "스파르타",
+				slot = "Weapon",
+				avatarItemRuid = "cf4ec31bc67844b1b03b33076d6f04ac",
+				iconRuid = "thumbnail://cf4ec31bc67844b1b03b33076d6f04ac",
+				dropSpriteRuid = "2e0252d9351b41799f176c4e2b3ea99f",
+				reqLevel = 100,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 10,
+				baseAtt = 98,
+				baseMaxHp = 0,
+			},
+			necro_saber = {
+				id = "necro_saber",
+				name = "네크로 세이버",
+				slot = "Weapon",
+				avatarItemRuid = "f94064775442497d8e48fede1c1346bd",
+				iconRuid = "thumbnail://f94064775442497d8e48fede1c1346bd",
+				dropSpriteRuid = "2e0252d9351b41799f176c4e2b3ea99f",
+				reqLevel = 120,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 15,
+				baseAtt = 105,
+				baseMaxHp = 0,
+			},
+			pensalir_sword = {
+				id = "pensalir_sword",
+				name = "우트가르드 세이버",
+				slot = "Weapon",
+				avatarItemRuid = "acb65b187f21498d9ad1905359f2f759",
+				iconRuid = "thumbnail://acb65b187f21498d9ad1905359f2f759",
+				dropSpriteRuid = "2e0252d9351b41799f176c4e2b3ea99f",
+				reqLevel = 140,
+				upgradeMax = 8,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 25,
+				baseAtt = 118,
+				baseMaxHp = 0,
+			},
+			fafnir_sword = {
+				id = "fafnir_sword",
+				name = "파프니르 미스틸테인",
+				slot = "Weapon",
+				avatarItemRuid = "535d6ec2b2e04a8d866050b3cf50a5f0",
+				iconRuid = "thumbnail://535d6ec2b2e04a8d866050b3cf50a5f0",
+				dropSpriteRuid = "7c92e0752a8342bb9fc05c2bafebdeae",
+				reqLevel = 150,
+				upgradeMax = 8,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 40,
+				baseAtt = 164,
+				baseMaxHp = 0,
+			},
+			absolab_saber = {
+				id = "absolab_saber",
+				name = "앱솔랩스 세이버",
+				slot = "Weapon",
+				avatarItemRuid = "23f591e794a8487298d8e5ee9a3a7727",
+				iconRuid = "thumbnail://23f591e794a8487298d8e5ee9a3a7727",
+				dropSpriteRuid = "7c92e0752a8342bb9fc05c2bafebdeae",
+				reqLevel = 160,
+				upgradeMax = 8,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 60,
+				baseAtt = 197,
+				baseMaxHp = 0,
+			},
+			arcane_saber = {
+				id = "arcane_saber",
+				name = "아케인셰이드 세이버",
+				slot = "Weapon",
+				avatarItemRuid = "b27d8bb322cc4d689dd945281dd45dcd",
+				iconRuid = "thumbnail://b27d8bb322cc4d689dd945281dd45dcd",
+				dropSpriteRuid = "7c92e0752a8342bb9fc05c2bafebdeae",
+				reqLevel = 200,
+				upgradeMax = 8,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 100,
+				baseAtt = 276,
+				baseMaxHp = 0,
+			},
+		
+			-- SubWeapon / Emblem / Rings
+			adventurer_medallion = {
+				id = "adventurer_medallion",
+				name = "모험가의 메달리온",
+				slot = "SubWeapon",
+				iconRuid = "82cefdf25a4943d68064ad383f4e2b19",
+				dropSpriteRuid = "82cefdf25a4943d68064ad383f4e2b19",
+				reqLevel = 100,
+				upgradeMax = 0,
+				canScroll = false,
+				canStarforce = false,
+				baseMainStat = 10,
+				baseAtt = 8,
+				baseMaxHp = 0,
+			},
+			deimos_warrior_shield = {
+				id = "deimos_warrior_shield",
+				name = "데이모스 워리어 실드",
+				slot = "SubWeapon",
+				iconRuid = "thumbnail://18824d3a9f234f24bcd5e9adf30dc474",
+				dropSpriteRuid = "82cefdf25a4943d68064ad383f4e2b19",
+				reqLevel = 130,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 16,
+				baseAtt = 14,
+				baseMaxHp = 100,
+			},
+			gold_maple_emblem = {
+				id = "gold_maple_emblem",
+				name = "골드 메이플리프 엠블렘",
+				slot = "Emblem",
+				iconRuid = "763ed51af22d447babd0e641c45922a0",
+				dropSpriteRuid = "763ed51af22d447babd0e641c45922a0",
+				reqLevel = 100,
+				upgradeMax = 0,
+				canScroll = false,
+				canStarforce = false,
+				baseMainStat = 10,
+				baseAtt = 6,
+				baseMaxHp = 0,
+			},
+			silver_blossom_ring = {
+				id = "silver_blossom_ring",
+				name = "실버블라썸 링",
+				slot = "Ring1",
+				iconRuid = "475369c5ce68432ea9127e1fe77d4942",
+				dropSpriteRuid = "475369c5ce68432ea9127e1fe77d4942",
+				reqLevel = 110,
+				upgradeMax = 5,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 12,
+				baseAtt = 4,
+				baseMaxHp = 100,
+			},
+			noble_ifia_ring = {
+				id = "noble_ifia_ring",
+				name = "고귀한 이피아의 반지",
+				slot = "Ring1",
+				iconRuid = "475369c5ce68432ea9127e1fe77d4942",
+				dropSpriteRuid = "475369c5ce68432ea9127e1fe77d4942",
+				reqLevel = 120,
+				upgradeMax = 5,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 20,
+				baseAtt = 8,
+				baseMaxHp = 150,
+			},
+		
+			-- Lv.140 펜살리르 배틀 방어구
+			pensalir_hat = {
+				id = "pensalir_hat",
+				name = "펜살리르 배틀헬름",
+				slot = "Hat",
+				iconRuid = "thumbnail://a8f555328bca4745a881a93346b9be38",
+				dropSpriteRuid = "a524c3d9d0b74f9cb73b495510492552",
+				reqLevel = 140,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 22,
+				baseAtt = 2,
+				baseMaxHp = 150,
+			},
+			pensalir_top = {
+				id = "pensalir_top",
+				name = "펜살리르 배틀메일",
+				slot = "Top",
+				iconRuid = "thumbnail://8143b856f2f645e299e2a8666be2ae57",
+				dropSpriteRuid = "097895b7dd534becaa08d619d88a6d4d",
+				reqLevel = 140,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 28,
+				baseAtt = 2,
+				baseMaxHp = 200,
+			},
+			pensalir_shoes = {
+				id = "pensalir_shoes",
+				name = "펜살리르 배틀부츠",
+				slot = "Shoes",
+				iconRuid = "thumbnail://0f1991a4e28549de9ab56a67fbfe531c",
+				dropSpriteRuid = "e94828d6455d43189068462b252e06fa",
+				reqLevel = 140,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 18,
+				baseAtt = 2,
+				baseMaxHp = 100,
+			},
+			pensalir_gloves = {
+				id = "pensalir_gloves",
+				name = "펜살리르 배틀글러브",
+				slot = "Gloves",
+				iconRuid = "thumbnail://acca69e4e49945738b11e61d48261ca7",
+				dropSpriteRuid = "e2305c675cf2438aa19c9fd323e2bea5",
+				reqLevel = 140,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 16,
+				baseAtt = 5,
+				baseMaxHp = 80,
+			},
+		
+			-- Lv.150 카루타 전사 방어구
+			karuta_hat = {
+				id = "karuta_hat",
+				name = "하이네스 워리어헬름",
+				slot = "Hat",
+				iconRuid = "thumbnail://c4cf8e607afc44bca67e805c2710fbd9",
+				dropSpriteRuid = "a524c3d9d0b74f9cb73b495510492552",
+				reqLevel = 150,
+				upgradeMax = 11,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 40,
+				baseAtt = 4,
+				baseMaxHp = 500,
+			},
+			karuta_top = {
+				id = "karuta_top",
+				name = "이글아이 워리어아머",
+				slot = "Top",
+				iconRuid = "thumbnail://e61ecbba1cdf4575b1569b52b81d49fe",
+				dropSpriteRuid = "097895b7dd534becaa08d619d88a6d4d",
+				reqLevel = 150,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 35,
+				baseAtt = 4,
+				baseMaxHp = 350,
+			},
+		
+			-- Lv.160 앱솔랩스 나이트 방어구
+			absolab_hat = {
+				id = "absolab_hat",
+				name = "앱솔랩스 나이트헬름",
+				slot = "Hat",
+				iconRuid = "thumbnail://4566a7ef3f4e46fca4c1751c499fec84",
+				dropSpriteRuid = "a524c3d9d0b74f9cb73b495510492552",
+				reqLevel = 160,
+				upgradeMax = 11,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 45,
+				baseAtt = 5,
+				baseMaxHp = 400,
+			},
+			absolab_top = {
+				id = "absolab_top",
+				name = "앱솔랩스 나이트슈트",
+				slot = "Top",
+				iconRuid = "thumbnail://ce77ce2811b64f7b99d24fc9358a56da",
+				dropSpriteRuid = "097895b7dd534becaa08d619d88a6d4d",
+				reqLevel = 160,
+				upgradeMax = 10,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 55,
+				baseAtt = 6,
+				baseMaxHp = 450,
+			},
+			absolab_gloves = {
+				id = "absolab_gloves",
+				name = "앱솔랩스 나이트글러브",
+				slot = "Gloves",
+				iconRuid = "thumbnail://ad76497733c74828b4e6aaeff251c35d",
+				dropSpriteRuid = "e2305c675cf2438aa19c9fd323e2bea5",
+				reqLevel = 160,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 25,
+				baseAtt = 8,
+				baseMaxHp = 200,
+			},
+			absolab_shoes = {
+				id = "absolab_shoes",
+				name = "앱솔랩스 나이트슈즈",
+				slot = "Shoes",
+				iconRuid = "thumbnail://9885f9d8ee00456e842d0b19b1caae1f",
+				dropSpriteRuid = "e94828d6455d43189068462b252e06fa",
+				reqLevel = 160,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 25,
+				baseAtt = 6,
+				baseMaxHp = 200,
+			},
+		
+			-- Lv.200 아케인셰이드 나이트 방어구
+			arcane_hat = {
+				id = "arcane_hat",
+				name = "아케인셰이드 나이트햇",
+				slot = "Hat",
+				iconRuid = "thumbnail://927bc02eee4d4448bf82d288c7e83cbb",
+				dropSpriteRuid = "a524c3d9d0b74f9cb73b495510492552",
+				reqLevel = 200,
+				upgradeMax = 11,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 65,
+				baseAtt = 10,
+				baseMaxHp = 650,
+			},
+			arcane_top = {
+				id = "arcane_top",
+				name = "아케인셰이드 나이트슈트",
+				slot = "Top",
+				iconRuid = "thumbnail://f0d982e53a7b433ab08044df6e327da7",
+				dropSpriteRuid = "097895b7dd534becaa08d619d88a6d4d",
+				reqLevel = 200,
+				upgradeMax = 10,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 80,
+				baseAtt = 12,
+				baseMaxHp = 750,
+			},
+			arcane_gloves = {
+				id = "arcane_gloves",
+				name = "아케인셰이드 나이트글러브",
+				slot = "Gloves",
+				iconRuid = "thumbnail://dfd4da8447cd45219f57ba91d3ad642d",
+				dropSpriteRuid = "e2305c675cf2438aa19c9fd323e2bea5",
+				reqLevel = 200,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 40,
+				baseAtt = 14,
+				baseMaxHp = 350,
+			},
+			arcane_shoes = {
+				id = "arcane_shoes",
+				name = "아케인셰이드 나이트슈즈",
+				slot = "Shoes",
+				iconRuid = "thumbnail://ce9c38b11f72410483fed1cbbe148480",
+				dropSpriteRuid = "e94828d6455d43189068462b252e06fa",
+				reqLevel = 200,
+				upgradeMax = 7,
+				canScroll = true,
+				canStarforce = true,
+				baseMainStat = 40,
+				baseAtt = 12,
+				baseMaxHp = 350,
+			},
+		}
+		
+		-- Classic MapleStory Consumable Potions (100% visually verified sprites!)
+		self.Potions = {
+			red_potion = {
+				id = "red_potion",
+				name = "빨간 포션",
+				iconRuid = "873b727f30ea41efb179d6537009413e",
+				healPct = 0.25,
+				desc = "HP를 25% 회복하는 메이플 기본 물약",
+			},
+			white_potion = {
+				id = "white_potion",
+				name = "하얀 포션",
+				iconRuid = "289c7bdcbdc8484ab7bad688b2519ca7",
+				healPct = 0.45,
+				desc = "HP를 45% 회복하는 상급 치유 물약",
+			},
+			blue_potion = {
+				id = "blue_potion",
+				name = "파란 포션",
+				iconRuid = "7e9b39b73f4945b1a8d77db6c99a6946",
+				healPct = 0.55,
+				desc = "HP/MP를 55% 회복하는 정제 마나 포션",
+			},
+			power_elixir = {
+				id = "power_elixir",
+				name = "파워 엘릭서",
+				iconRuid = "48b4fbe44af54678bf86031d9ff5a1d4",
+				healPct = 1.00,
+				desc = "HP와 MP를 100% 완전히 회복하는 전설의 비약",
+			},
+		}
+		
+		-- Classic MapleStory Monster ETC Loot (100% visually verified sprites!)
+		self.EtcLoots = {
+			mush_cap = {
+				id = "mush_cap",
+				name = "주황버섯의 갓",
+				iconRuid = "25294310aac142b1bf51f27744258d6b",
+				sellMeso = 180,
+				desc = "빅토리아 아일랜드 몬스터 전리품 (판매 시 180 메소)",
+			},
+			slime_bubble = {
+				id = "slime_bubble",
+				name = "물컹물컹한 액체",
+				iconRuid = "89ff14273d9940eebe8d44b003563915",
+				sellMeso = 350,
+				desc = "해변·습지 몬스터 전리품 (판매 시 350 메소)",
+			},
+			boar_tooth = {
+				id = "boar_tooth",
+				name = "와일드보어의 송곳니",
+				iconRuid = "e2f81d1a7a2744ecb33828c631eeb14a",
+				sellMeso = 850,
+				desc = "페리온·오시리아 맹수 전리품 (판매 시 850 메소)",
+			},
+			cursed_charm = {
+				id = "cursed_charm",
+				name = "저주받은 부적",
+				iconRuid = "02cb4efe45e24517affd1dc7a5631e7e",
+				sellMeso = 2200,
+				desc = "고레벨 사냥터 정예 전리품 (판매 시 2,200 메소)",
+			},
+		}
+		
+		self.Scrolls = {
+			scroll_100 = { id = "scroll_100", name = "100% 주문서", kind = "normal", rate = 1.00, traceCost = 15, weaponAtt = 3, weaponStat = 1, armorAtt = 0, armorStat = 3 },
+			scroll_70  = { id = "scroll_70",  name = "70% 주문서",  kind = "normal", rate = 0.70, traceCost = 30, weaponAtt = 5, weaponStat = 2, armorAtt = 0, armorStat = 5 },
+			scroll_30  = { id = "scroll_30",  name = "30% 주문서",  kind = "normal", rate = 0.30, traceCost = 60, weaponAtt = 7, weaponStat = 3, armorAtt = 1, armorStat = 7 },
+			scroll_15  = { id = "scroll_15",  name = "15% 주문서",  kind = "normal", rate = 0.15, traceCost = 100, weaponAtt = 9, weaponStat = 4, armorAtt = 2, armorStat = 10 },
+			clean_slate   = { id = "clean_slate",   name = "순백의 주문서 10%", kind = "clean_slate", rate = 0.10, traceCost = 250 },
+			innocence     = { id = "innocence",     name = "이노센트 주문서 50%", kind = "innocence", rate = 0.50, traceCost = 500 },
+			golden_hammer = { id = "golden_hammer", name = "황금 망치 100%", kind = "hammer", rate = 1.00, traceCost = 300 },
+		}
+		
+		self.StarforceTable = {
+			[0]  = { success = 0.95, keep = 0.05, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[1]  = { success = 0.90, keep = 0.10, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[2]  = { success = 0.85, keep = 0.15, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[3]  = { success = 0.85, keep = 0.15, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[4]  = { success = 0.80, keep = 0.20, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[5]  = { success = 0.75, keep = 0.25, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[6]  = { success = 0.70, keep = 0.30, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[7]  = { success = 0.65, keep = 0.35, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[8]  = { success = 0.60, keep = 0.40, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[9]  = { success = 0.55, keep = 0.45, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[10] = { success = 0.50, keep = 0.50, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[11] = { success = 0.45, keep = 0.55, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[12] = { success = 0.40, keep = 0.60, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[13] = { success = 0.35, keep = 0.65, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[14] = { success = 0.30, keep = 0.70, drop = 0.0,   boom = 0.0,   canSafeguard = false },
+			[15] = { success = 0.30, keep = 0.679, drop = 0.0,  boom = 0.021, canSafeguard = true },
+			[16] = { success = 0.30, keep = 0.0,  drop = 0.679, boom = 0.021, canSafeguard = true },
+			[17] = { success = 0.30, keep = 0.0,  drop = 0.679, boom = 0.021, canSafeguard = false },
+			[18] = { success = 0.30, keep = 0.0,  drop = 0.672, boom = 0.028, canSafeguard = false },
+			[19] = { success = 0.30, keep = 0.0,  drop = 0.672, boom = 0.028, canSafeguard = false },
+			[20] = { success = 0.30, keep = 0.630, drop = 0.0,  boom = 0.070, canSafeguard = false },
+			[21] = { success = 0.30, keep = 0.0,  drop = 0.630, boom = 0.070, canSafeguard = false },
+			[22] = { success = 0.03, keep = 0.0,  drop = 0.776, boom = 0.194, canSafeguard = false },
+			[23] = { success = 0.02, keep = 0.0,  drop = 0.686, boom = 0.294, canSafeguard = false },
+			[24] = { success = 0.01, keep = 0.0,  drop = 0.594, boom = 0.396, canSafeguard = false },
+		}
+		
+		self.PotentialGrades = { "Rare", "Epic", "Unique", "Legendary" }
+		self.PotentialGradeIndex = { Rare = 1, Epic = 2, Unique = 3, Legendary = 4 }
+		
+		self.Cubes = {
+			suspicious = { id = "suspicious", name = "수상한 큐브", maxGradeIndex = 2, chooseResult = false, rates = { [1] = 0.015 }, pity = { [1] = 50 } },
+			master     = { id = "master",     name = "장인의 큐브", maxGradeIndex = 3, chooseResult = false, rates = { [1] = 0.050, [2] = 0.015 }, pity = { [1] = 25, [2] = 60 } },
+			meister    = { id = "meister",    name = "명장의 큐브", maxGradeIndex = 4, chooseResult = false, rates = { [1] = 0.080, [2] = 0.020, [3] = 0.005 }, pity = { [1] = 15, [2] = 45, [3] = 100 } },
+			red        = { id = "red",        name = "레드 큐브",   maxGradeIndex = 4, chooseResult = false, rates = { [1] = 0.060, [2] = 0.020, [3] = 0.006 }, pity = { [1] = 20, [2] = 45, [3] = 90 } },
+			black      = { id = "black",      name = "블랙 큐브",   maxGradeIndex = 4, chooseResult = true,  rates = { [1] = 0.150, [2] = 0.040, [3] = 0.018 }, pity = { [1] = 10, [2] = 25, [3] = 50 } },
+		}
+		
+		self.PotentialPools = {
+			WeaponSub = {
+				Rare = {
+					{ stat = "attPct", value = 3, label = "공격력 +3%" },
+					{ stat = "dmgPct", value = 3, label = "데미지 +3%" },
+					{ stat = "mainStatPct", value = 3, label = "STR +3%" },
+					{ stat = "critRate", value = 4, label = "크리티컬 확률 +4%" },
+				},
+				Epic = {
+					{ stat = "attPct", value = 6, label = "공격력 +6%" },
+					{ stat = "dmgPct", value = 6, label = "데미지 +6%" },
+					{ stat = "iedPct", value = 15, label = "방어율 무시 +15%" },
+					{ stat = "mainStatPct", value = 6, label = "STR +6%" },
+					{ stat = "critRate", value = 8, label = "크리티컬 확률 +8%" },
+				},
+				Unique = {
+					{ stat = "attPct", value = 9, label = "공격력 +9%" },
+					{ stat = "bossDmgPct", value = 30, label = "보스 데미지 +30%" },
+					{ stat = "iedPct", value = 30, label = "방어율 무시 +30%" },
+					{ stat = "dmgPct", value = 9, label = "데미지 +9%" },
+					{ stat = "mainStatPct", value = 9, label = "STR +9%" },
+					{ stat = "critRate", value = 10, label = "크리티컬 확률 +10%" },
+				},
+				Legendary = {
+					{ stat = "attPct", value = 12, label = "공격력 +12%" },
+					{ stat = "bossDmgPct", value = 40, label = "보스 데미지 +40%" },
+					{ stat = "bossDmgPct", value = 35, label = "보스 데미지 +35%" },
+					{ stat = "iedPct", value = 40, label = "방어율 무시 +40%" },
+					{ stat = "iedPct", value = 35, label = "방어율 무시 +35%" },
+					{ stat = "dmgPct", value = 12, label = "데미지 +12%" },
+					{ stat = "critRate", value = 12, label = "크리티컬 확률 +12%" },
+				},
+			},
+			Emblem = {
+				Rare = {
+					{ stat = "attPct", value = 3, label = "공격력 +3%" },
+					{ stat = "dmgPct", value = 3, label = "데미지 +3%" },
+					{ stat = "mainStatPct", value = 3, label = "STR +3%" },
+				},
+				Epic = {
+					{ stat = "attPct", value = 6, label = "공격력 +6%" },
+					{ stat = "iedPct", value = 15, label = "방어율 무시 +15%" },
+					{ stat = "dmgPct", value = 6, label = "데미지 +6%" },
+					{ stat = "mainStatPct", value = 6, label = "STR +6%" },
+				},
+				Unique = {
+					{ stat = "attPct", value = 9, label = "공격력 +9%" },
+					{ stat = "iedPct", value = 30, label = "방어율 무시 +30%" },
+					{ stat = "dmgPct", value = 9, label = "데미지 +9%" },
+					{ stat = "mainStatPct", value = 9, label = "STR +9%" },
+				},
+				Legendary = {
+					{ stat = "attPct", value = 12, label = "공격력 +12%" },
+					{ stat = "iedPct", value = 40, label = "방어율 무시 +40%" },
+					{ stat = "iedPct", value = 35, label = "방어율 무시 +35%" },
+					{ stat = "dmgPct", value = 12, label = "데미지 +12%" },
+					{ stat = "critRate", value = 12, label = "크리티컬 확률 +12%" },
+				},
+			},
+			Gloves = {
+				Rare = {
+					{ stat = "mainStatPct", value = 3, label = "STR +3%" },
+					{ stat = "mainStat", value = 12, label = "STR +12" },
+					{ stat = "maxHpPct", value = 3, label = "최대 HP +3%" },
+				},
+				Epic = {
+					{ stat = "mainStatPct", value = 6, label = "STR +6%" },
+					{ stat = "critRate", value = 5, label = "크리티컬 확률 +5%" },
+					{ stat = "maxHpPct", value = 6, label = "최대 HP +6%" },
+				},
+				Unique = {
+					{ stat = "mainStatPct", value = 9, label = "STR +9%" },
+					{ stat = "critDmgPct", value = 4, label = "크리티컬 데미지 +4%" },
+					{ stat = "maxHpPct", value = 9, label = "최대 HP +9%" },
+				},
+				Legendary = {
+					{ stat = "critDmgPct", value = 8, label = "크리티컬 데미지 +8%" },
+					{ stat = "mainStatPct", value = 12, label = "STR +12%" },
+					{ stat = "mainStatPct", value = 9, label = "올스탯 +9%" },
+					{ stat = "maxHpPct", value = 12, label = "최대 HP +12%" },
+				},
+			},
+			Ring = {
+				Rare = {
+					{ stat = "mainStatPct", value = 3, label = "STR +3%" },
+					{ stat = "mainStat", value = 10, label = "STR +10" },
+					{ stat = "maxHpPct", value = 3, label = "최대 HP +3%" },
+				},
+				Epic = {
+					{ stat = "mainStatPct", value = 6, label = "STR +6%" },
+					{ stat = "maxHpPct", value = 6, label = "최대 HP +6%" },
+				},
+				Unique = {
+					{ stat = "mainStatPct", value = 9, label = "STR +9%" },
+					{ stat = "mesoPct", value = 10, label = "메소 획득량 +10%" },
+					{ stat = "dropPct", value = 10, label = "아이템 드랍률 +10%" },
+				},
+				Legendary = {
+					{ stat = "mesoPct", value = 20, label = "메소 획득량 +20%" },
+					{ stat = "dropPct", value = 20, label = "아이템 드랍률 +20%" },
+					{ stat = "mainStatPct", value = 12, label = "STR +12%" },
+					{ stat = "mainStatPct", value = 9, label = "올스탯 +9%" },
+				},
+			},
+			Armor = {
+				Rare = {
+					{ stat = "mainStatPct", value = 3, label = "STR +3%" },
+					{ stat = "mainStat", value = 12, label = "STR +12" },
+					{ stat = "maxHpPct", value = 3, label = "최대 HP +3%" },
+				},
+				Epic = {
+					{ stat = "mainStatPct", value = 6, label = "STR +6%" },
+					{ stat = "maxHpPct", value = 6, label = "최대 HP +6%" },
+				},
+				Unique = {
+					{ stat = "mainStatPct", value = 9, label = "STR +9%" },
+					{ stat = "mainStatPct", value = 6, label = "올스탯 +6%" },
+					{ stat = "maxHpPct", value = 9, label = "최대 HP +9%" },
+				},
+				Legendary = {
+					{ stat = "mainStatPct", value = 12, label = "STR +12%" },
+					{ stat = "mainStatPct", value = 9, label = "올스탯 +9%" },
+					{ stat = "maxHpPct", value = 12, label = "최대 HP +12%" },
+				},
+			},
+		}
+	end
+
+	method any GetItemMaster(string itemId)
+		self:EnsureInit()
+		return self.Items[itemId]
+	end
+
+	method any GetEquipDropPoolForLevel(integer mapReqLevel)
+		self:EnsureInit()
+		local lv = mapReqLevel or 1
+		if lv >= 180 then
+			return { "arcane_saber", "arcane_hat", "arcane_top", "arcane_gloves", "arcane_shoes", "absolab_saber", "absolab_hat", "absolab_top", "deimos_warrior_shield" }
+		elseif lv >= 160 then
+			return { "absolab_saber", "absolab_hat", "absolab_top", "absolab_gloves", "absolab_shoes", "fafnir_sword", "karuta_hat", "karuta_top", "noble_ifia_ring" }
+		elseif lv >= 120 then
+			return { "fafnir_sword", "karuta_hat", "karuta_top", "deimos_warrior_shield", "pensalir_sword", "pensalir_hat", "pensalir_top", "pensalir_gloves", "pensalir_shoes", "noble_ifia_ring" }
+		elseif lv >= 60 then
+			return { "sparta", "necro_saber", "deimos_warrior_shield", "pensalir_hat", "pensalir_top", "pensalir_gloves", "pensalir_shoes", "silver_blossom_ring", "noble_ifia_ring" }
+		else
+			return { "gladius", "pensalir_hat", "pensalir_top", "pensalir_gloves", "pensalir_shoes", "silver_blossom_ring" }
+		end
+	end
+
+	method string GetPotionIdForLevel(integer mapReqLevel)
+		local lv = mapReqLevel or 1
+		if lv >= 120 then return "power_elixir"
+		elseif lv >= 80 then return "blue_potion"
+		elseif lv >= 40 then return "white_potion"
+		else return "red_potion"
+		end
+	end
+
+	method string GetEtcLootIdForLevel(integer mapReqLevel)
+		local lv = mapReqLevel or 1
+		if lv >= 120 then return "cursed_charm"
+		elseif lv >= 60 then return "boar_tooth"
+		elseif lv >= 25 then return "slime_bubble"
+		else return "mush_cap"
+		end
+	end
+
+	method any GetJobTierInfo(integer tier)
+		self:EnsureInit()
+		local t = math.max(0, math.min(4, tier or 0))
+		return self.JobTiers[t] or self.JobTiers[0]
+	end
+
+	method any GetNextAdvanceTier(integer currentTier, integer level)
+		self:EnsureInit()
+		local cur = currentTier or 0
+		if cur >= 4 then return nil end
+		local nxt = self.JobTiers[cur + 1]
+		if nxt and level >= nxt.reqLevel then
+			return nxt
+		end
+		return nil
+	end
+
+	method any GetSkillInfo(string skillId)
+		self:EnsureInit()
+		return self.Skills[skillId] or self.Skills.power_strike
+	end
+
+	method any GetHuntingMapInfo(string mapName)
+		self:EnsureInit()
+		for _, m in ipairs(self.HuntingMaps) do
+			if m.mapName == mapName then
+				return m
+			end
+		end
+		return nil
+	end
+
+	method any GetRecommendedHuntingMap(integer level)
+		self:EnsureInit()
+		local best = self.HuntingMaps[1]
+		for _, m in ipairs(self.HuntingMaps) do
+			if level >= m.reqLevel then
+				best = m
+			end
+		end
+		return best
+	end
+
+	method any GetNextLockedHuntingMap(integer level)
+		self:EnsureInit()
+		for _, m in ipairs(self.HuntingMaps) do
+			if level < m.reqLevel then
+				return m
+			end
+		end
+		return nil
+	end
+
+	method integer GetMaxStar(integer reqLevel)
+		if reqLevel >= 140 then return 25 end
+		if reqLevel >= 130 then return 20 end
+		if reqLevel >= 120 then return 15 end
+		if reqLevel >= 110 then return 10 end
+		return 8
+	end
+
+	method integer GetStarforceMesoCost(integer reqLevel, integer currentStar, boolean safeguard)
+		local base = 1000
+		local lvFactor = math.max(1, math.floor(reqLevel / 10))
+		local cost = 0
+		if currentStar < 10 then
+			cost = math.floor(base + (lvFactor ^ 2) * (currentStar + 1) * 8)
+		elseif currentStar < 15 then
+			cost = math.floor(base + (lvFactor ^ 2) * ((currentStar + 1) ^ 2) * 3)
+		else
+			cost = math.floor(base + (lvFactor ^ 2) * ((currentStar + 1) ^ 2.7) * 2)
+		end
+		if safeguard and (currentStar == 15 or currentStar == 16) then
+			cost = cost * 2
+		end
+		return cost
+	end
+
+	method any GetStarforceBonus(string itemId, integer star)
+		self:EnsureInit()
+		local master = self.Items[itemId]
+		local bonus = { mainStat = 0, att = 0 }
+		if not master or star <= 0 then
+			return bonus
+		end
+		local isWeapon = (master.slot == "Weapon")
+		local curAtt = master.baseAtt
+		for s = 1, star do
+			if s <= 15 then
+				bonus.mainStat = bonus.mainStat + (s <= 5 and 2 or 3)
+				if isWeapon then
+					local gain = math.floor(curAtt * 0.02) + 1
+					bonus.att = bonus.att + gain
+					curAtt = curAtt + gain
+				end
+			else
+				bonus.mainStat = bonus.mainStat + 11
+				local attGain = 9 + (s - 16)
+				bonus.att = bonus.att + attGain
+				curAtt = curAtt + attGain
+			end
+		end
+		return bonus
+	end
+
+	method string GetPoolKeyForSlot(string slot)
+		if slot == "Weapon" or slot == "SubWeapon" then return "WeaponSub"
+		elseif slot == "Emblem" then return "Emblem"
+		elseif slot == "Gloves" then return "Gloves"
+		elseif slot == "Ring1" then return "Ring"
+		end
+		return "Armor"
+	end
+
+	method string GetGradeKorean(string grade)
+		if grade == "Rare" then return "레어" end
+		if grade == "Epic" then return "에픽" end
+		if grade == "Unique" then return "유니크" end
+		if grade == "Legendary" then return "레전드리" end
+		return "없음"
+	end
+
+	method integer GetExpToNextLevel(integer level)
+		local lv = math.max(1, math.min(self.MaxLevel, level or 1))
+		if lv >= self.MaxLevel then
+			return 999999999
+		end
+		-- Authentic 1x MapleStory KMS Lv.1 ~ 200 EXP Table
+		local exact = {
+			[1] = 15, [2] = 34, [3] = 57, [4] = 92, [5] = 135,
+			[6] = 372, [7] = 560, [8] = 840, [9] = 1242,
+			[10] = 1242, [11] = 1242, [12] = 1242, [13] = 1242, [14] = 1242,
+			[15] = 1490, [16] = 1788, [17] = 2145, [18] = 2574, [19] = 3088,
+			[20] = 3705, [21] = 4446, [22] = 5335, [23] = 6402, [24] = 7682,
+			[25] = 9218, [26] = 11061, [27] = 13273, [28] = 15927, [29] = 19112,
+			[30] = 19112, [31] = 19112, [32] = 19112, [33] = 19112, [34] = 19112,
+			[35] = 22934, [36] = 27520, [37] = 33024, [38] = 39628, [39] = 47553,
+			[40] = 51357, [41] = 55465, [42] = 59902, [43] = 64694, [44] = 69869,
+			[45] = 75458, [46] = 81494, [47] = 88013, [48] = 95054, [49] = 102658,
+		}
+		if exact[lv] then
+			return exact[lv]
+		elseif lv < 100 then
+			return math.floor(110870 * (1.0678 ^ (lv - 50)))
+		else
+			return math.floor(2950000 * (1.05462 ^ (lv - 100)))
+		end
+	end
+
+	method string FormatNumber(number n)
+		local v = math.floor(n or 0)
+		if v >= 100000000 then
+			return string.format("%.2f억", v / 100000000)
+		elseif v >= 10000 then
+			return string.format("%.1f만", v / 10000)
+		end
+		return tostring(v)
+	end
+
+	method string FormatComma(number n)
+		local s = tostring(math.floor(n or 0))
+		local k
+		while true do
+			s, k = string.gsub(s, "^(-?%d+)(%d%d%d)", "%1,%2")
+			if k == 0 then break end
+		end
+		return s
+	end
+
+end

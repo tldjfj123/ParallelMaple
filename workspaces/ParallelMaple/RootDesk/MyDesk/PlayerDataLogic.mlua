@@ -1,0 +1,851 @@
+@Logic
+script PlayerDataLogic extends Logic
+
+	property any Profiles = nil
+
+	property any ComputedStats = nil
+
+	property any ComboCounts = nil
+
+	property any PendingDrops = nil
+
+	property any ClientSnapshot = nil
+
+	property string TownMapName = "TileMapTemplate"
+
+	property string HuntMapName = "HenesysHunt1"
+
+	property string LevelUpSoundRUID = "c198d87b06b24707864b1ac73345cca8"
+
+	property string JobAdvanceSoundRUID = "6ac20b63715b4701b318cbb5842ff1ff"
+
+	@ExecSpace("ServerOnly")
+	method void OnBeginPlay()
+		_GameDataLogic:EnsureInit()
+		self.Profiles = {}
+		self.ComputedStats = {}
+		self.ComboCounts = {}
+		self.PendingDrops = {}
+		
+		_TimerService:SetTimerRepeat(function()
+			for userId, _ in pairs(self.Profiles) do
+				self:SaveProfileAsync(userId)
+			end
+		end, 60)
+	end
+
+	@ExecSpace("ServerOnly")
+	method any CreateEquipInstance(string itemId)
+		_GameDataLogic:EnsureInit()
+		local master = _GameDataLogic:GetItemMaster(itemId)
+		if not master then return nil end
+		local uid = "eq_" .. _UtilLogic:NewGuid()
+		local poolKey = _GameDataLogic:GetPoolKeyForSlot(master.slot)
+		local rarePool = _GameDataLogic.PotentialPools[poolKey].Rare
+		local pots = {}
+		for i = 1, 3 do
+			local pick = rarePool[_UtilLogic:RandomIntegerRange(1, #rarePool)]
+			pots[i] = { stat = pick.stat, value = pick.value, label = pick.label, grade = "Rare" }
+		end
+		
+		return {
+			uid = uid,
+			itemId = master.id,
+			slot = master.slot,
+			reqLevel = master.reqLevel,
+			upgradeMax = master.upgradeMax,
+			upgradeRemaining = master.upgradeMax,
+			hammerUsed = false,
+			scrollSuccess = 0,
+			scrollFail = 0,
+			scrollBonus = { mainStat = 0, att = 0 },
+			star = 0,
+			isDestroyed = false,
+			consecutiveFailDrop = 0,
+			potentialGrade = "Rare",
+			cubePityCount = 0,
+			potentials = pots,
+			pendingPotential = nil,
+			additionalPotentialGrade = "None",
+		}
+	end
+
+	@ExecSpace("ServerOnly")
+	method any CreateDefaultProfile(string userId)
+		local profile = {
+			version = 2,
+			jobId = "warrior",
+			jobTier = 0, -- 0:초보자 -> 1:검사(Lv10) -> 2:파이터(Lv30) -> 3:크루세이더(Lv60) -> 4:히어로(Lv100)
+			level = 1,
+			exp = 0,
+			meso = 500000,
+			spellTrace = 5000,
+			cubes = {
+				suspicious = 30,
+				master = 10,
+				meister = 5,
+				red = 10,
+				black = 10,
+			},
+			potions = {
+				red_potion = 20,
+				white_potion = 10,
+				blue_potion = 10,
+				power_elixir = 5,
+			},
+			etcLoot = {},
+			equipped = {},
+			inventory = {},
+			codex = {},
+			lastSaveEpoch = math.floor(_UtilLogic.ServerElapsedSeconds),
+		}
+		
+		local starterIds = {
+			"pensalir_sword",
+			"adventurer_medallion",
+			"gold_maple_emblem",
+			"pensalir_hat",
+			"pensalir_top",
+			"pensalir_shoes",
+			"pensalir_gloves",
+			"silver_blossom_ring",
+		}
+		
+		for _, itemId in ipairs(starterIds) do
+			local eq = self:CreateEquipInstance(itemId)
+			if eq then
+				table.insert(profile.inventory, eq)
+				profile.equipped[eq.slot] = eq.uid
+				profile.codex[itemId] = true
+			end
+		end
+		
+		local spare = self:CreateEquipInstance("pensalir_sword")
+		if spare then
+			table.insert(profile.inventory, spare)
+		end
+		
+		return profile
+	end
+
+	@ExecSpace("ServerOnly")
+	method any FindItemByUid(any profile, string uid)
+		if not profile or not profile.inventory then return nil, nil end
+		for idx, item in ipairs(profile.inventory) do
+			if item.uid == uid then return item, idx end
+		end
+		return nil, nil
+	end
+
+	@ExecSpace("ServerOnly")
+	method boolean IsItemEquipped(any profile, string uid)
+		if not profile or not profile.equipped then return false end
+		for _, eqUid in pairs(profile.equipped) do
+			if eqUid == uid then return true end
+		end
+		return false
+	end
+
+	@ExecSpace("ServerOnly")
+	method void AddComboStack(string userId)
+		_GameDataLogic:EnsureInit()
+		local profile = self.Profiles[userId]
+		if not profile then return end
+		local tierInfo = _GameDataLogic:GetJobTierInfo(profile.jobTier or 0)
+		local maxCombo = tierInfo.maxCombo or 0
+		if maxCombo <= 0 then return end
+		if not self.ComboCounts then self.ComboCounts = {} end
+		local cur = self.ComboCounts[userId] or 0
+		if cur < maxCombo then
+			self.ComboCounts[userId] = cur + 1
+			self:RecalculateStats(userId)
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method any RecalculateStats(string userId)
+		_GameDataLogic:EnsureInit()
+		local profile = self.Profiles[userId]
+		if not profile then return nil end
+		
+		-- Enforce fixed Warrior/Hero class
+		profile.jobId = "warrior"
+		profile.jobTier = math.max(0, math.min(4, profile.jobTier or 0))
+		profile.level = math.max(1, math.min(_GameDataLogic.MaxLevel, profile.level or 1))
+		
+		local tierInfo = _GameDataLogic:GetJobTierInfo(profile.jobTier)
+		local comboCount = (self.ComboCounts and self.ComboCounts[userId]) or 0
+		if comboCount > (tierInfo.maxCombo or 0) then
+			comboCount = tierInfo.maxCombo or 0
+			if self.ComboCounts then self.ComboCounts[userId] = comboCount end
+		end
+		
+		local mainStat = 24 + (profile.level - 1) * 6 + (tierInfo.bonusStr or 0)
+		local att = 18 + (profile.level - 1) * 3 + (tierInfo.bonusAtt or 0)
+		local maxHp = 1200 + (profile.level - 1) * 140 + (profile.jobTier * 600)
+		local mainStatPct = (profile.jobTier >= 4) and 15 or 0 -- 4차 메이플 용사 +15%
+		local attPct = (profile.jobTier >= 4) and 15 or 0
+		local dmgPct = 0
+		local finalDmgPct = (tierInfo.bonusFinalDmg or 0) + (comboCount * 6)
+		local bossDmgPct = 0
+		local iedPct = (profile.jobTier >= 3) and 15 or 0
+		local critRate = 20 + (tierInfo.bonusCrit or 0)
+		local critDmgPct = 50 + ((profile.jobTier >= 4) and 20 or 0)
+		local mesoPct = tierInfo.bonusMesoPct or 0
+		local expPct = (tierInfo.bonusExpPct or 0) + (comboCount * 1)
+		local dropPct = 0
+		local maxHpPct = (profile.jobTier >= 1) and 20 or 0 -- 1차 아이언 바디
+		local totalStarforce = 0
+		
+		local codexCount = 0
+		if profile.codex then
+			for _, _ in pairs(profile.codex) do codexCount = codexCount + 1 end
+		end
+		mainStat = mainStat + codexCount * 4
+		att = att + codexCount * 2
+		
+		for _, slot in ipairs(_GameDataLogic.SlotOrder) do
+			local uid = profile.equipped[slot]
+			if uid then
+				local item = self:FindItemByUid(profile, uid)
+				if item and not item.isDestroyed then
+					totalStarforce = totalStarforce + (item.star or 0)
+					local master = _GameDataLogic:GetItemMaster(item.itemId)
+					if master then
+						mainStat = mainStat + master.baseMainStat
+						att = att + master.baseAtt
+						maxHp = maxHp + master.baseMaxHp
+					end
+					if item.scrollBonus then
+						mainStat = mainStat + (item.scrollBonus.mainStat or 0)
+						att = att + (item.scrollBonus.att or 0)
+					end
+					local sfBonus = _GameDataLogic:GetStarforceBonus(item.itemId, item.star or 0)
+					mainStat = mainStat + sfBonus.mainStat
+					att = att + sfBonus.att
+		
+					if item.potentials then
+						for _, line in ipairs(item.potentials) do
+							local st = line.stat
+							local val = line.value or 0
+							if st == "mainStat" then mainStat = mainStat + val
+							elseif st == "mainStatPct" then mainStatPct = mainStatPct + val
+							elseif st == "attPct" then attPct = attPct + val
+							elseif st == "dmgPct" then dmgPct = dmgPct + val
+							elseif st == "bossDmgPct" then bossDmgPct = bossDmgPct + val
+							elseif st == "iedPct" then
+								iedPct = 100 - (100 - iedPct) * (1 - val / 100)
+							elseif st == "critRate" then critRate = critRate + val
+							elseif st == "critDmgPct" then critDmgPct = critDmgPct + val
+							elseif st == "mesoPct" then mesoPct = mesoPct + val
+							elseif st == "dropPct" then dropPct = dropPct + val
+							elseif st == "maxHpPct" then maxHpPct = maxHpPct + val
+							end
+						end
+					end
+				end
+			end
+		end
+		
+		local totalMainStat = math.floor(mainStat * (1 + mainStatPct / 100))
+		local totalAtt = math.floor(att * (1 + attPct / 100))
+		local totalMaxHp = math.floor(maxHp * (1 + maxHpPct / 100))
+		local finalCritRate = math.min(100, critRate)
+		
+		local rawPower = (totalMainStat * 4) * totalAtt
+			* (1 + (dmgPct + bossDmgPct * 0.5) / 100)
+			* (1 + finalDmgPct / 100)
+			* (1 + (finalCritRate / 100) * (critDmgPct / 100))
+		local combatPower = math.max(1, math.floor(rawPower / 8))
+		
+		local stats = {
+			totalMainStat = totalMainStat,
+			totalAtt = totalAtt,
+			totalMaxHp = totalMaxHp,
+			mainStatPct = mainStatPct,
+			attPct = attPct,
+			dmgPct = dmgPct,
+			finalDmgPct = finalDmgPct,
+			bossDmgPct = bossDmgPct,
+			iedPct = math.floor(iedPct + 0.5),
+			critRate = finalCritRate,
+			critDmgPct = critDmgPct,
+			mesoPct = mesoPct,
+			expPct = expPct,
+			dropPct = dropPct,
+			totalStarforce = totalStarforce,
+			combatPower = combatPower,
+			codexCount = codexCount,
+			jobTier = profile.jobTier,
+			comboCount = comboCount,
+			maxCombo = tierInfo.maxCombo or 0,
+		}
+		
+		self.ComputedStats[userId] = stats
+		
+		local playerEntity = _UserService:GetUserEntityByUserId(userId)
+		if isvalid(playerEntity) and isvalid(playerEntity.PlayerComponent) then
+			playerEntity.PlayerComponent.MaxHp = totalMaxHp
+			-- Idle-friendly auto-potion & full-HP sync on scale-up
+			if playerEntity.PlayerComponent.Hp <= 0 or playerEntity.PlayerComponent.Hp > totalMaxHp or playerEntity.PlayerComponent.Hp < (totalMaxHp * 0.65) then
+				playerEntity.PlayerComponent.Hp = totalMaxHp
+			end
+			local wUid = profile.equipped and profile.equipped["Weapon"] or nil
+			local wItem = wUid and self:FindItemByUid(profile, wUid) or nil
+			local wItemId = (wItem and not wItem.isDestroyed) and wItem.itemId or "pensalir_sword"
+			if _CombatVisualLogic then
+				_CombatVisualLogic:ApplyWeaponCostume(playerEntity, "warrior", wItemId)
+			end
+		end
+		
+		return stats
+	end
+
+	@ExecSpace("ServerOnly")
+	method any GetServerStats(string userId)
+		if not self.ComputedStats then return nil end
+		return self.ComputedStats[userId]
+	end
+
+	@ExecSpace("ServerOnly")
+	method any GetServerProfile(string userId)
+		if not self.Profiles then return nil end
+		return self.Profiles[userId]
+	end
+
+	@ExecSpace("ServerOnly")
+	method any SanitizeForJson(any val)
+		if type(val) ~= "table" then return val end
+		local out = {}
+		local hasAny = false
+		for k, v in pairs(val) do
+			local clean = self:SanitizeForJson(v)
+			if clean ~= nil then
+				out[k] = clean
+				hasAny = true
+			end
+		end
+		if not hasAny then return nil end
+		return out
+	end
+
+	@ExecSpace("ServerOnly")
+	method void PushSnapshotToClient(string userId)
+		local profile = self.Profiles[userId]
+		if not profile then return end
+		local stats = self:RecalculateStats(userId)
+		local playerEntity = _UserService:GetUserEntityByUserId(userId)
+		local currentMapName = self.TownMapName
+		if isvalid(playerEntity) then
+			currentMapName = playerEntity.CurrentMapName
+		end
+		
+		local payload = {
+			profile = self:SanitizeForJson(profile),
+			stats = self:SanitizeForJson(stats),
+			expNeeded = _GameDataLogic:GetExpToNextLevel(profile.level),
+			currentMapName = currentMapName,
+		}
+		local encoded = _HttpService:JSONEncode(payload)
+		self:OnReceiveSnapshot(encoded, userId)
+	end
+
+	@ExecSpace("Client")
+	method void OnReceiveSnapshot(string jsonPayload)
+		local decoded = _HttpService:JSONDecode(jsonPayload)
+		if not decoded then return end
+		if decoded.profile then
+			decoded.profile.equipped = decoded.profile.equipped or {}
+			decoded.profile.inventory = decoded.profile.inventory or {}
+			decoded.profile.codex = decoded.profile.codex or {}
+			decoded.profile.potions = decoded.profile.potions or {}
+			decoded.profile.etcLoot = decoded.profile.etcLoot or {}
+		end
+		self.ClientSnapshot = decoded
+		if _UIIdleManager then
+			_UIIdleManager:RefreshAll()
+		end
+	end
+
+	@ExecSpace("Client")
+	method void OnGainLog(string kind, string text)
+		if _UIIdleManager then
+			_UIIdleManager:PushGainLog(kind, text)
+		end
+	end
+
+	@ExecSpace("Client")
+	method void OnPlayLocalSound(string ruid, number vol)
+		if ruid and ruid ~= "" then
+			_SoundService:PlaySound(ruid, vol)
+		end
+	end
+
+	@ExecSpace("Multicast")
+	method void PlayLevelUpVisual(Entity playerEntity, boolean isJobAdvance)
+		if isJobAdvance then
+			if self.JobAdvanceSoundRUID ~= "" then
+				_SoundService:PlaySound(self.JobAdvanceSoundRUID, 0.92)
+			end
+		else
+			if self.LevelUpSoundRUID ~= "" then
+				_SoundService:PlaySound(self.LevelUpSoundRUID, 0.92)
+			end
+		end
+		if isvalid(playerEntity) and _CombatVisualLogic then
+			_CombatVisualLogic:PlayClassicLevelUpEffect(playerEntity, isJobAdvance)
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void SaveProfileAsync(string userId)
+		local profile = self.Profiles[userId]
+		if not profile then return end
+		local storage = _DataStorageService:GetUserDataStorage(userId)
+		if not storage then return end
+		local clean = self:SanitizeForJson(profile)
+		if not clean then return end
+		local encoded = _HttpService:JSONEncode(clean)
+		storage:SetAsync("idle_save_v1", encoded, function(errCode, key)
+			if errCode ~= 0 then
+				log("[PlayerDataLogic] Save failed for " .. userId .. " err=" .. tostring(errCode))
+			end
+		end)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void LoadProfileForUser(string userId)
+		local storage = _DataStorageService:GetUserDataStorage(userId)
+		if not storage then
+			self.Profiles[userId] = self:CreateDefaultProfile(userId)
+			self:PushSnapshotToClient(userId)
+			return
+		end
+		
+		storage:GetAsync("idle_save_v1", function(errCode, key, dataStr)
+			local profile = nil
+			if errCode == 0 and dataStr and dataStr ~= "" then
+				local ok, decoded = pcall(function()
+					return _HttpService:JSONDecode(dataStr)
+				end)
+				if ok and decoded and decoded.inventory then
+					-- Migrate seamlessly to Warrior/Hero fixed class
+					decoded.jobId = "warrior"
+					decoded.jobTier = decoded.jobTier or 0
+					decoded.level = math.max(1, math.min(_GameDataLogic.MaxLevel, decoded.level or 1))
+					decoded.equipped = decoded.equipped or {}
+					decoded.codex = decoded.codex or {}
+					decoded.potions = decoded.potions or { red_potion = 20, white_potion = 10, blue_potion = 10, power_elixir = 5 }
+					decoded.etcLoot = decoded.etcLoot or {}
+					profile = decoded
+				end
+			end
+			if not profile then
+				profile = self:CreateDefaultProfile(userId)
+			end
+			self.Profiles[userId] = profile
+			self:PushSnapshotToClient(userId)
+		end)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void GrantMonsterKillRewardWithDrops(string userId, Vector3 monPos, integer baseExp, integer baseMeso, integer baseTrace)
+		local profile = self.Profiles[userId]
+		if not profile then return end
+		local stats = self.ComputedStats[userId] or self:RecalculateStats(userId)
+		local mesoPct = (stats and stats.mesoPct) or 0
+		local expPct = (stats and stats.expPct) or 0
+		local dropMult = 1 + ((stats and stats.dropPct or 0) / 100)
+		
+		-- Extra Starforce field bonus EXP (+15% when player satisfies map's Starforce!)
+		local playerEntity = _UserService:GetUserEntityByUserId(userId)
+		local mapInfo = isvalid(playerEntity) and _GameDataLogic:GetHuntingMapInfo(playerEntity.CurrentMapName) or nil
+		if mapInfo and (mapInfo.reqStarforce or 0) > 0 and (stats and stats.totalStarforce or 0) >= mapInfo.reqStarforce then
+			expPct = expPct + 15
+		end
+		
+		-- 1) Award authentic 1x EXP + Bonus EXP immediately & send right-side gain log!
+		local coreExp = math.max(1, math.floor(baseExp))
+		local bonusExp = math.max(0, math.floor(coreExp * (expPct / 100.0)))
+		local totalExp = coreExp + bonusExp
+		
+		if profile.level < _GameDataLogic.MaxLevel then
+			profile.exp = profile.exp + totalExp
+		end
+		
+		self:OnGainLog("exp", "경험치를 얻었습니다 (+" .. _GameDataLogic:FormatComma(coreExp) .. ")", userId)
+		if bonusExp > 0 then
+			self:OnGainLog("bonus_exp", "추가 경험치 (+" .. _GameDataLogic:FormatComma(bonusExp) .. ")", userId)
+		end
+		
+		-- Level-up loop up to Lv.200
+		local prevLv = profile.level
+		local leveledUp = false
+		while profile.level < _GameDataLogic.MaxLevel do
+			local need = _GameDataLogic:GetExpToNextLevel(profile.level)
+			if profile.exp >= need then
+				profile.exp = profile.exp - need
+				profile.level = profile.level + 1
+				leveledUp = true
+			else
+				break
+			end
+		end
+		if profile.level >= _GameDataLogic.MaxLevel then
+			profile.exp = 0
+		end
+		
+		-- 2) Generate authentic 1x physical floor drops
+		if not self.PendingDrops then self.PendingDrops = {} end
+		if not self.PendingDrops[userId] then self.PendingDrops[userId] = {} end
+		local userDrops = self.PendingDrops[userId]
+		local now = _UtilLogic.ServerElapsedSeconds
+		
+		for did, d in pairs(userDrops) do
+			if now > (d.expireAt or 0) then userDrops[did] = nil end
+		end
+		
+		local clientPayload = {}
+		local coreMeso = math.max(1, math.floor(baseMeso))
+		local bonusMeso = math.max(0, math.floor(coreMeso * (mesoPct / 100.0)))
+		local totalMesoDrop = coreMeso + bonusMeso
+		local gainTrace = math.max(1, math.floor(baseTrace * dropMult))
+		local mapReqLv = (mapInfo and mapInfo.reqLevel) or (profile.level or 1)
+		
+		-- 1) Tiered Meso Drop (100% chance: Coin / Green Bill Bundle / Gold Meso Bag!)
+		local dMeso = "d_" .. _UtilLogic:NewGuid()
+		userDrops[dMeso] = { kind = "meso", baseAmount = coreMeso, bonusAmount = bonusMeso, amount = totalMesoDrop, expireAt = now + 50 }
+		table.insert(clientPayload, { dropId = dMeso, kind = "meso", amount = totalMesoDrop, x = monPos.x, y = monPos.y })
+		
+		-- 2) Monster ETC 전리품 Drop (38% chance — authentic MapleStory hunting loot!)
+		if _UtilLogic:RandomDouble() < math.min(0.85, 0.38 * dropMult) then
+			local etcId = _GameDataLogic:GetEtcLootIdForLevel(mapReqLv)
+			local dEtc = "d_" .. _UtilLogic:NewGuid()
+			userDrops[dEtc] = { kind = "etc", etcId = etcId, amount = 1, expireAt = now + 50 }
+			table.insert(clientPayload, { dropId = dEtc, kind = "etc", etcId = etcId, x = monPos.x, y = monPos.y })
+		end
+		
+		-- 3) Consumable Potion Drop (28% chance — Red/White/Blue Potion or Power Elixir!)
+		if _UtilLogic:RandomDouble() < math.min(0.75, 0.28 * dropMult) then
+			local potId = _GameDataLogic:GetPotionIdForLevel(mapReqLv)
+			local dPot = "d_" .. _UtilLogic:NewGuid()
+			userDrops[dPot] = { kind = "potion", potionId = potId, amount = 1, expireAt = now + 50 }
+			table.insert(clientPayload, { dropId = dPot, kind = "potion", potionId = potId, x = monPos.x, y = monPos.y })
+		end
+		
+		-- 4) Spell Trace Drop (42% chance)
+		if _UtilLogic:RandomDouble() < math.min(0.85, 0.42 * dropMult) then
+			local dTrace = "d_" .. _UtilLogic:NewGuid()
+			userDrops[dTrace] = { kind = "trace", amount = gainTrace, expireAt = now + 50 }
+			table.insert(clientPayload, { dropId = dTrace, kind = "trace", x = monPos.x, y = monPos.y })
+		end
+		
+		-- 5) Cube Drop Roll (10% chance: Suspicious / Master / Red / Black!)
+		if _UtilLogic:RandomDouble() < math.min(0.45, 0.10 * dropMult) then
+			local r = _UtilLogic:RandomDouble()
+			local cubeType = "suspicious"
+			if r < 0.04 * dropMult then cubeType = "black"
+			elseif r < 0.14 * dropMult then cubeType = "red"
+			elseif r < 0.35 * dropMult then cubeType = "master"
+			end
+			local dCube = "d_" .. _UtilLogic:NewGuid()
+			userDrops[dCube] = { kind = "cube", cubeType = cubeType, amount = 1, expireAt = now + 50 }
+			table.insert(clientPayload, { dropId = dCube, kind = "cube", cubeType = cubeType, x = monPos.x, y = monPos.y })
+		end
+		
+		-- 6) Level-Bracket Warrior Equipment Drop Roll (10% chance while inventory < 40)
+		if #profile.inventory < 40 and _UtilLogic:RandomDouble() < math.min(0.40, 0.10 * dropMult) then
+			local dropPool = _GameDataLogic:GetEquipDropPoolForLevel(mapReqLv)
+			local pickId = dropPool[_UtilLogic:RandomIntegerRange(1, #dropPool)]
+			local dEq = "d_" .. _UtilLogic:NewGuid()
+			userDrops[dEq] = { kind = "equip", itemId = pickId, expireAt = now + 50 }
+			table.insert(clientPayload, { dropId = dEq, kind = "equip", itemId = pickId, x = monPos.x, y = monPos.y })
+		end
+		
+		self:PushSnapshotToClient(userId)
+		self:OnSpawnFloorDrops(_HttpService:JSONEncode(clientPayload), userId)
+		
+		if leveledUp then
+			-- Full HP/MP recovery + Classic MapleStory Golden Pillar & LEVEL UP! burst!
+			if isvalid(playerEntity) and isvalid(playerEntity.PlayerComponent) then
+				playerEntity.PlayerComponent.Hp = playerEntity.PlayerComponent.MaxHp
+			end
+			self:PlayLevelUpVisual(playerEntity, false)
+		
+			-- Classic MapleStory Level-Up Shockwave (blasts nearby normal monsters!)
+			if isvalid(playerEntity) and isvalid(playerEntity.CurrentMap) and isvalid(playerEntity.TransformComponent) then
+				local pEnt = playerEntity
+				local pMap = playerEntity.CurrentMap
+				local pPos = playerEntity.TransformComponent.WorldPosition
+				_TimerService:SetTimerOnce(function()
+					if not isvalid(pEnt) or not isvalid(pMap) then return end
+					local children = pMap.Children
+					local blasted = 0
+					for i = 1, #children do
+						if blasted >= 8 then break end
+						local ch = children[i]
+						if isvalid(ch) and ch.Enable and isvalid(ch.Monster) and not ch.Monster.IsDead and isvalid(ch.HitComponent) and isvalid(ch.TransformComponent) then
+							local mp = ch.TransformComponent.WorldPosition
+							if math.abs(mp.x - pPos.x) <= 4.6 and math.abs(mp.y - pPos.y) <= 2.6 then
+								local shockDmg = math.max(999, math.ceil(ch.Monster.MaxHp))
+								ch.HitComponent:OnHit(pEnt, shockDmg, true, "", 1)
+								blasted = blasted + 1
+							end
+						end
+					end
+				end, 0.12)
+			end
+		
+			-- Check newly unlocked job advancement or hunting ground!
+			local nxtAdv = _GameDataLogic:GetNextAdvanceTier(profile.jobTier or 0, profile.level)
+			local newlyUnlockedMap = nil
+			for _, hm in ipairs(_GameDataLogic.HuntingMaps) do
+				if hm.reqLevel > prevLv and hm.reqLevel <= profile.level then
+					newlyUnlockedMap = hm
+				end
+			end
+			if nxtAdv then
+				self:NotifyClientToast("★ LEVEL UP (Lv." .. tostring(profile.level) .. ")! [" .. nxtAdv.name .. "] 전직이 가능합니다!", userId)
+			elseif newlyUnlockedMap then
+				self:NotifyClientToast("★ Lv." .. tostring(profile.level) .. " 달성! 신규 사냥터 [" .. newlyUnlockedMap.name .. "] 해금! (M)", userId)
+			else
+				self:NotifyClientToast("LEVEL UP! Lv." .. tostring(profile.level) .. " 달성!", userId)
+			end
+		end
+	end
+
+	@ExecSpace("Client")
+	method void OnSpawnFloorDrops(string dropsJson)
+		local list = _HttpService:JSONDecode(dropsJson)
+		if list and _CombatVisualLogic then
+			_CombatVisualLogic:SpawnFloorDrops(list)
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestPickupDrop(string dropId)
+		local profile = self.Profiles[senderUserId]
+		if not profile or not self.PendingDrops then return end
+		local userDrops = self.PendingDrops[senderUserId]
+		if not userDrops then return end
+		local drop = userDrops[dropId]
+		if not drop then return end
+		userDrops[dropId] = nil
+		
+		if drop.kind == "meso" then
+			local baseAmt = drop.baseAmount or drop.amount or 0
+			local bonusAmt = drop.bonusAmount or 0
+			profile.meso = profile.meso + baseAmt + bonusAmt
+			self:OnGainLog("meso", "메소를 얻었습니다 (+" .. _GameDataLogic:FormatComma(baseAmt) .. ")", senderUserId)
+			if bonusAmt > 0 then
+				self:OnGainLog("bonus_meso", "추가 메소 (+" .. _GameDataLogic:FormatComma(bonusAmt) .. ")", senderUserId)
+			end
+		elseif drop.kind == "trace" then
+			local amt = drop.amount or 0
+			profile.spellTrace = profile.spellTrace + amt
+			self:OnGainLog("item", "아이템을 얻었습니다 (주문의 흔적 +" .. _GameDataLogic:FormatComma(amt) .. ")", senderUserId)
+		elseif drop.kind == "potion" then
+			local pid = drop.potionId or "red_potion"
+			profile.potions = profile.potions or {}
+			profile.potions[pid] = (profile.potions[pid] or 0) + (drop.amount or 1)
+			local pInfo = _GameDataLogic.Potions and _GameDataLogic.Potions[pid] or nil
+			self:OnGainLog("potion", "아이템을 얻었습니다 (" .. (pInfo and pInfo.name or pid) .. ")", senderUserId)
+		elseif drop.kind == "etc" then
+			local eid = drop.etcId or "mush_cap"
+			profile.etcLoot = profile.etcLoot or {}
+			profile.etcLoot[eid] = (profile.etcLoot[eid] or 0) + (drop.amount or 1)
+			local eInfo = _GameDataLogic.EtcLoots and _GameDataLogic.EtcLoots[eid] or nil
+			self:OnGainLog("item", "아이템을 얻었습니다 (" .. (eInfo and eInfo.name or eid) .. ")", senderUserId)
+		elseif drop.kind == "cube" then
+			local ct = drop.cubeType or "suspicious"
+			profile.cubes[ct] = (profile.cubes[ct] or 0) + (drop.amount or 1)
+			local cubeInfo = _GameDataLogic.Cubes[ct]
+			self:OnGainLog("cube", "아이템을 얻었습니다 (" .. (cubeInfo and cubeInfo.name or ct) .. ")", senderUserId)
+		elseif drop.kind == "equip" then
+			if #profile.inventory < 40 then
+				local eq = self:CreateEquipInstance(drop.itemId)
+				if eq then
+					table.insert(profile.inventory, eq)
+					profile.codex[drop.itemId] = true
+					local master = _GameDataLogic:GetItemMaster(drop.itemId)
+					self:OnGainLog("equip", "장비를 얻었습니다 (" .. (master and master.name or drop.itemId) .. ")", senderUserId)
+				end
+			end
+		end
+		
+		self:PushSnapshotToClient(senderUserId)
+	end
+
+	@ExecSpace("Server")
+	method void RequestUsePotion(string potionId)
+		_GameDataLogic:EnsureInit()
+		local profile = self.Profiles[senderUserId]
+		if not profile then return end
+		profile.potions = profile.potions or {}
+		local cnt = profile.potions[potionId] or 0
+		if cnt <= 0 then
+			self:NotifyClientToast("보유한 포션이 없습니다.", senderUserId)
+			return
+		end
+		local pInfo = _GameDataLogic.Potions and _GameDataLogic.Potions[potionId] or nil
+		if not pInfo then return end
+		
+		profile.potions[potionId] = cnt - 1
+		local playerEntity = _UserService:GetUserEntityByUserId(senderUserId)
+		if isvalid(playerEntity) and isvalid(playerEntity.PlayerComponent) then
+			local maxHp = math.max(1, playerEntity.PlayerComponent.MaxHp)
+			local heal = math.floor(maxHp * (pInfo.healPct or 0.5))
+			playerEntity.PlayerComponent.Hp = math.min(maxHp, (playerEntity.PlayerComponent.Hp or 0) + heal)
+		end
+		self:NotifyClientToast(pInfo.name .. " 사용! HP 회복 (남은 수량: " .. tostring(profile.potions[potionId]) .. ")", senderUserId)
+		self:PushSnapshotToClient(senderUserId)
+	end
+
+	@ExecSpace("Server")
+	method void RequestSellEtcLoot(string etcId)
+		_GameDataLogic:EnsureInit()
+		local profile = self.Profiles[senderUserId]
+		if not profile then return end
+		profile.etcLoot = profile.etcLoot or {}
+		local cnt = profile.etcLoot[etcId] or 0
+		if cnt <= 0 then
+			self:NotifyClientToast("판매할 전리품이 없습니다.", senderUserId)
+			return
+		end
+		local eInfo = _GameDataLogic.EtcLoots and _GameDataLogic.EtcLoots[etcId] or nil
+		local unitPrice = (eInfo and eInfo.sellMeso) or 200
+		local totalGain = cnt * unitPrice
+		profile.etcLoot[etcId] = 0
+		profile.meso = (profile.meso or 0) + totalGain
+		self:OnGainLog("meso", "전리품 판매 (+" .. _GameDataLogic:FormatComma(totalGain) .. " 메소)", senderUserId)
+		self:NotifyClientToast((eInfo and eInfo.name or etcId) .. " " .. tostring(cnt) .. "개 판매! (+" .. _GameDataLogic:FormatComma(totalGain) .. " 메소)", senderUserId)
+		self:PushSnapshotToClient(senderUserId)
+	end
+
+	@ExecSpace("Client")
+	method void NotifyClientToast(string msg)
+		if _UIToast then
+			_UIToast:ShowMessage(msg)
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestSyncState()
+		if not self.Profiles[senderUserId] then
+			self:LoadProfileForUser(senderUserId)
+		else
+			self:PushSnapshotToClient(senderUserId)
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestAdvanceJob()
+		_GameDataLogic:EnsureInit()
+		local profile = self.Profiles[senderUserId]
+		if not profile then return end
+		local curTier = profile.jobTier or 0
+		if curTier >= 4 then
+			self:NotifyClientToast("이미 최종 4차 전직 [히어로]를 완료했습니다!", senderUserId)
+			return
+		end
+		local nextInfo = _GameDataLogic:GetJobTierInfo(curTier + 1)
+		if profile.level < nextInfo.reqLevel then
+			self:NotifyClientToast("[" .. nextInfo.name .. "] 전직은 Lv." .. tostring(nextInfo.reqLevel) .. "부터 가능합니다!", senderUserId)
+			return
+		end
+		
+		profile.jobTier = curTier + 1
+		profile.jobId = "warrior"
+		-- Job advancement celebration gift (1x authentic scale)
+		local bonusMeso = profile.jobTier * 50000
+		profile.meso = profile.meso + bonusMeso
+		profile.cubes.red = (profile.cubes.red or 0) + profile.jobTier * 2
+		profile.cubes.black = (profile.cubes.black or 0) + profile.jobTier * 1
+		
+		self:PushSnapshotToClient(senderUserId)
+		self:SaveProfileAsync(senderUserId)
+		local playerEntity = _UserService:GetUserEntityByUserId(senderUserId)
+		self:PlayLevelUpVisual(playerEntity, true)
+		self:NotifyClientToast("★ " .. tostring(profile.jobTier) .. "차 전직 완료! [" .. nextInfo.name .. "] 신규 스킬 해금!", senderUserId)
+		self:OnGainLog("equip", "★ 전직 축하 보상: +" .. _GameDataLogic:FormatNumber(bonusMeso) .. " 메소 & 큐브 획득!", senderUserId)
+	end
+
+	@ExecSpace("Server")
+	method void RequestEquipItem(string uid)
+		local profile = self.Profiles[senderUserId]
+		if not profile then return end
+		local item = self:FindItemByUid(profile, uid)
+		if not item then return end
+		if item.isDestroyed then
+			self:NotifyClientToast("파괴된 장비의 흔적은 장착할 수 없습니다. 스페어로 복구하세요!", senderUserId)
+			return
+		end
+		profile.equipped[item.slot] = item.uid
+		self:PushSnapshotToClient(senderUserId)
+		self:SaveProfileAsync(senderUserId)
+	end
+
+	@ExecSpace("Server")
+	method void RequestTeleportMap(string targetMapName)
+		_GameDataLogic:EnsureInit()
+		local profile = self.Profiles[senderUserId]
+		local playerEntity = _UserService:GetUserEntityByUserId(senderUserId)
+		if not isvalid(playerEntity) then return end
+		
+		-- Enforce level requirement on hunting maps (Town always accessible)
+		if targetMapName ~= self.TownMapName then
+			local mapInfo = _GameDataLogic:GetHuntingMapInfo(targetMapName)
+			if not mapInfo then
+				self:NotifyClientToast("존재하지 않는 사냥터입니다.", senderUserId)
+				return
+			end
+			local curLv = (profile and profile.level) or 1
+			if curLv < mapInfo.reqLevel then
+				self:NotifyClientToast("🔒 [" .. mapInfo.name .. "]은(는) Lv." .. tostring(mapInfo.reqLevel) .. "부터 입장 가능합니다!", senderUserId)
+				return
+			end
+		end
+		
+		local destMap = _EntityService:GetEntityByPath("/maps/" .. targetMapName)
+		local spawnEntity = _EntityService:GetEntityByPath("/maps/" .. targetMapName .. "/SpawnLocation")
+		if isvalid(spawnEntity) then
+			_TeleportService:TeleportToEntity(playerEntity, spawnEntity)
+		elseif isvalid(destMap) and isvalid(destMap.FootholdComponent) then
+			-- Fallback: pick a safe horizontal foothold center!
+			local fhs = destMap.FootholdComponent:GetFootholdAll()
+			local destPos = Vector3(0, 1, 0)
+			if fhs then
+				for _, fh in ipairs(fhs) do
+					if not fh:IsVertical() and fh:GetWidth() >= 1.5 then
+						local c = fh:GetCenter()
+						destPos = Vector3(c.x, c.y + 0.5, 0)
+						break
+					end
+				end
+			end
+			_TeleportService:TeleportToMapPosition(playerEntity, destPos, targetMapName)
+		else
+			_TeleportService:TeleportToMapPosition(playerEntity, Vector3(0, 1, 0), targetMapName)
+		end
+		
+		_TimerService:SetTimerOnce(function()
+			self:PushSnapshotToClient(senderUserId)
+		end, 0.35)
+	end
+
+	@ExecSpace("ServerOnly")
+	@EventSender("Service", "UserService")
+	handler HandleUserEnterEvent(UserEnterEvent event)
+		self:LoadProfileForUser(event.UserId)
+	end
+
+	@ExecSpace("ServerOnly")
+	@EventSender("Service", "UserService")
+	handler HandleUserLeaveEvent(UserLeaveEvent event)
+		self:SaveProfileAsync(event.UserId)
+		if self.Profiles then self.Profiles[event.UserId] = nil end
+		if self.ComputedStats then self.ComputedStats[event.UserId] = nil end
+		if self.ComboCounts then self.ComboCounts[event.UserId] = nil end
+	end
+
+end

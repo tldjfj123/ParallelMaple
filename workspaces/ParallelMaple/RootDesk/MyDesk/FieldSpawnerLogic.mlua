@@ -1,0 +1,236 @@
+@Logic
+script FieldSpawnerLogic extends Logic
+
+	property integer TargetDensePerMap = 38
+
+	property integer MaxDensePerMap = 46
+
+	property any SpeciesSoundMap = nil
+
+	@ExecSpace("ServerOnly")
+	method void OnBeginPlay()
+		_GameDataLogic:EnsureInit()
+		self:InitSpeciesSounds()
+		_TimerService:SetTimerOnce(function()
+			self:PopulateAllHuntingGrounds()
+		end, 0.6)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void InitSpeciesSounds()
+		-- 100% Verified Official MapleStory Sound/Mob.img/<mobId> Damage & Die SFX (ZERO NPC/human voice lines!)
+		self.SpeciesSoundMap = {
+			-- HenesysHunt1 (리본돼지 1210101, 주황버섯 1210102, 스포아 0100120)
+			["86acfa20b1b44c4fbd0c7c77b09d6f21"] = { hit = "79bfbaa52940459fa25d4329389fd895", die = "b5bc1177f5a44e868195ff2f38287e97" },
+			["bb49c776e7af494b966422f3410d008e"] = { hit = "0597dba591384ee6b38ea66dc5c6aef4", die = "9f9df446cc81446ea132ba39a5e7c44b" },
+			["f6b87e29b7954d64809ace9bf18868e4"] = { hit = "be411b63084445b5825b3363ffc0e51f", die = "f4f0f6e1c99a41289e93d7735458078d" },
+		
+			-- Hunt01_StrayDog (새비지 터미널 들개 -> 5130103 Hound/Hector Mob SFX)
+			["8cc3d448848b40929621584a88f59abf"] = { hit = "0ded23788df849e98a3d2ceadc372d48", die = "fe59467672d64ada8d38af1a0b2f0e4c" },
+		
+			-- Hunt02_GoldBeach (골드비치 슬라임 -> 0210100 Slime Mob SFX)
+			["b7a4068644384bfd8d1d8f9a0f05b602"] = { hit = "4623a7a5a7de4e09891c3f0a70f6fb39", die = "79c80c07bf104fedada12695846b09c4" },
+		
+			-- Hunt03_WildBoar (와일드보어 2230101 & 파이어보어 3230100 Mob SFX)
+			["af64c62c1dcf427998c3c52f0a060fec"] = { hit = "5e13b3b194d94f40b93f3f4447564f65", die = "64331b8092f24a3d928457b8853f446c" },
+			["d8316fab961249cd9e1740c7fe5b3632"] = { hit = "c29e11ae27164d3594fa41fb0b3fda4d", die = "f7fe3ac9c7444363bf9b8cef8734edd3" },
+		
+			-- Hunt04_SilentSwamp (카파 드레이크 -> 5130100 Drake Mob SFX)
+			["4ca39dbfa1c6492283ba8bd352d12b0a"] = { hit = "05912d47b0f842b8a0b388af9993f4a5", die = "7e34fc63c39d4dafbb7894ba0e93be15" },
+		
+			-- Hunt05_SkyStair (셀리온 5120001 / 라이오너 5120002 / 그류핀 5120003 Mob SFX)
+			["0cd5144530644997bc058b73258909ca"] = { hit = "5ef3bbe0f41a4f8287b3313ad22d08ac", die = "c79d83e2d6fc416085a994b3536f0648" },
+			["2eebec335f5b4e62ac8c37a140e6455c"] = { hit = "b66f9a8952bf477b93bae3d1612d38b6", die = "3e60904a80e24a7eb78c07f184273ca0" },
+			["53bc00064db248c988b55c0ec5bdb269"] = { hit = "ea1f58a5370d41fc89cb22df371667a1", die = "babcd4a829084929bb7c3d28e84c75d3" },
+		
+			-- Hunt06_IceValley (화이트팽 5130104 Mob SFX)
+			["734d499b1e9b4ee79e5ea6b4a6f6d4b3"] = { hit = "65fd52de50674233a009665248b8daed", die = "c0b13da4ed4f445c9ce39c8429f67743" },
+		
+			-- Hunt07_Tent (모래두더지 2110200 Mob SFX)
+			["5ac6af337e3f45d79afd9f874f87d247"] = { hit = "ecb7fe3f13c5491780d3b64d812210d5", die = "754991d9176c47ea9bda8929f4f3733f" },
+		
+			-- Hunt08_LabC2 (사이티 6110300 Mob SFX)
+			["baf7309b77e94a93beb27298b2792bba"] = { hit = "34b7e2fbe86d49c1a0aa631f39641559", die = "55117072498b4e6bafcfe45da29cd1f8" },
+		
+			-- Hunt09_SkyNest3 (하프 8140001 Mob SFX)
+			["8c2ec5bf58894061a19479ed7545637b"] = { hit = "45754821d0194fb5b5182699443a4fd0", die = "5b42836a0e68441bad17249fcd009478" },
+		
+			-- Hunt10_LudiClock (게이트키퍼 8141100 Mob SFX)
+			["0b141a95900f4679a0a6e6f64dad8607"] = { hit = "88e0e209649f4622b102764e8f8e9d92", die = "9db561f3705d42e0861253ddc48813de" },
+		
+			-- Hunt11_ElnathMine (주니어 불독 7130001 / 불독 7130010 Mob SFX)
+			["56be642e8efc4f1b853791423de0d9f7"] = { hit = "835b33bf069a463d9074fa2167d90d2b", die = "972f81bd3c4646a5bd2741f9c83c17e2" },
+			["c72258ad91a44f7e88b76c52024e72a0"] = { hit = "6bfbf0b30e2245f7b87bc73369853a7c", die = "1d341b8fcf054f6e97b7d046c22e5d27" },
+		
+			-- Hunt12_KerningTower (에스프레소 머신 -> 4230113 Robo/Machine Mob SFX)
+			["8b810b2c78bc4a4c8580154f4b435778"] = { hit = "d131fc8134744256800c4489286f14ed", die = "0212f0ec56f344b491b48f9042ad798f" },
+		
+			-- Hunt13_Kritias (비탄의 정령 -> 8140500 Grim Phantom Spirit Mob SFX)
+			["e977e818949d4a56a91ad56d71210134"] = { hit = "54034820b38e4a7c992d6e339ec970d2", die = "b3aa1cad5e0f4a24b9a11f9a824cf03d" },
+		
+			-- Hunt14_OmegaH01 (지구방위본부 그레이 4230116 Mob SFX)
+			["d4ae577677034eaaa0b902e3c20edf15"] = { hit = "d80cdedde4254e628d87cdc906e0119a", die = "93ff5a48c1344d68a99fc7096fabcd46" },
+		
+			-- Hunt15_Armory2 (기사단의 요새 -> 8140100 & 5130102 Beast/Armor Mob SFX)
+			["edfb15b677da40838ae1d62dc5a6e771"] = { hit = "f86c83639b9a41e29f7aafb1cd4d94a0", die = "7bea2aa01cfa42e0adfbfe9060b89ffa" },
+			["1372fb890a68470097e1991c9daf20e0"] = { hit = "8c17778a464340899f795297bcda78d1", die = "d97d8f628c7a436db24067c4c5cbecda" },
+		
+			-- Hunt16_Excavation2 (변형된 스텀프 1130100 Mob SFX)
+			["e28e93a960fd4895a7fb7caa952da2ae"] = { hit = "80f324d622e9474288467f365b27e90b", die = "97fb9d320a0042b3924a9dd926f929c4" },
+		
+			-- Hunt17_Excavation4 (변형된 골렘 5130102 Mob SFX)
+			["1c940d94348445a4ad06bd79dd8ed79d"] = { hit = "8c17778a464340899f795297bcda78d1", die = "d97d8f628c7a436db24067c4c5cbecda" },
+		}
+	end
+
+	@ExecSpace("ServerOnly")
+	method void ConfigureMonsterForMap(Entity mob, any mapInfo, Vector3 homePos)
+		if not isvalid(mob) or not isvalid(mob.Monster) then return end
+		local ruid = isvalid(mob.SpriteRendererComponent) and mob.SpriteRendererComponent.SpriteRUID or ""
+		local m = mob.Monster
+		
+		-- Authentic 1x MapleStory rates!
+		if mapInfo.mapName == "HenesysHunt1" then
+			if ruid == "86acfa20b1b44c4fbd0c7c77b09d6f21" then
+				m.MaxHp = 120; m.ExpReward = 20; m.MesoReward = 28; m.TraceReward = 1
+			elseif ruid == "bb49c776e7af494b966422f3410d008e" then
+				m.MaxHp = 75; m.ExpReward = 14; m.MesoReward = 18; m.TraceReward = 1
+			elseif ruid == "f6b87e29b7954d64809ace9bf18868e4" then
+				m.MaxHp = 45; m.ExpReward = 8; m.MesoReward = 12; m.TraceReward = 1
+			else
+				m.MaxHp = mapInfo.mobHp; m.ExpReward = mapInfo.mobExp
+				m.MesoReward = mapInfo.mobMeso; m.TraceReward = mapInfo.mobTrace
+			end
+		else
+			m.MaxHp = mapInfo.mobHp or 280
+			m.ExpReward = mapInfo.mobExp or 42
+			m.MesoReward = mapInfo.mobMeso or 65
+			m.TraceReward = mapInfo.mobTrace or 1
+		end
+		
+		-- Apply authentic monster-species-specific Hit & Death sounds!
+		if self.SpeciesSoundMap and self.SpeciesSoundMap[ruid] then
+			local snd = self.SpeciesSoundMap[ruid]
+			m.HitSoundRUID = snd.hit
+			m.DeathSoundRUID = snd.die
+		end
+		
+		if homePos then
+			m.HomePosition = Vector3(homePos.x, homePos.y, homePos.z)
+		elseif isvalid(mob.TransformComponent) then
+			local p = mob.TransformComponent.Position
+			m.HomePosition = Vector3(p.x, p.y, p.z)
+		end
+		
+		m.Hp = m.MaxHp
+		m.RespawnOn = true
+		m.RespawnDelay = 1.6
+		m.DestroyDelay = 0.50
+	end
+
+	@ExecSpace("ServerOnly")
+	method any FindAnchoredSpawnSlot(Entity huntMap, Entity nativeMob, any occupiedPositions, number offsetDir)
+		if not isvalid(huntMap) or not isvalid(huntMap.FootholdComponent) then return nil end
+		if not isvalid(nativeMob) or not isvalid(nativeMob.TransformComponent) then return nil end
+		
+		local basePos = nativeMob.TransformComponent.Position
+		local fhComp = huntMap.FootholdComponent
+		
+		-- Validate candidate X positions strictly on the EXACT SAME continuous official monster platform
+		-- via direct downward raycast (handles multi-segment MapleStory platforms seamlessly without ever touching roofs/props!)
+		local offsets = {
+			1.25 * offsetDir, -1.25 * offsetDir,
+			2.35 * offsetDir, -2.35 * offsetDir,
+			3.45 * offsetDir, -3.45 * offsetDir,
+			0.95 * offsetDir, -0.95 * offsetDir,
+		}
+		for _, dx in ipairs(offsets) do
+			local cx = basePos.x + dx
+			local hitFh = fhComp:Raycast(Vector2(cx, basePos.y + 0.85), Vector2(0, -1), 2.1)
+			if hitFh and not hitFh:IsVertical() then
+				local cy = hitFh:GetYByX(cx)
+				-- Ensure same continuous platform level (within +-0.55m of native official spawn Y)
+				-- and ensure solid ground also exists +-0.35m left/right (no cliff-edge dangling!)
+				if math.abs(cy - basePos.y) <= 0.55 then
+					local fhL = fhComp:Raycast(Vector2(cx - 0.35, cy + 0.55), Vector2(0, -1), 1.4)
+					local fhR = fhComp:Raycast(Vector2(cx + 0.35, cy + 0.55), Vector2(0, -1), 1.4)
+					if fhL and not fhL:IsVertical() and fhR and not fhR:IsVertical() then
+						local finalY = cy + 0.04
+						local tooClose = false
+						for _, op in ipairs(occupiedPositions) do
+							if math.abs(op.x - cx) < 1.05 and math.abs(op.y - finalY) < 0.75 then
+								tooClose = true
+								break
+							end
+						end
+						if not tooClose then
+							return Vector3(cx, finalY, basePos.z)
+						end
+					end
+				end
+			end
+		end
+		return nil
+	end
+
+	@ExecSpace("ServerOnly")
+	method void PopulateAllHuntingGrounds()
+		_GameDataLogic:EnsureInit()
+		if not self.SpeciesSoundMap then self:InitSpeciesSounds() end
+		
+		local configuredMaps = 0
+		local totalMobs = 0
+		local totalAdded = 0
+		
+		for _, mapInfo in ipairs(_GameDataLogic.HuntingMaps) do
+			local huntMap = _EntityService:GetEntityByPath("/maps/" .. mapInfo.mapName)
+			if isvalid(huntMap) then
+				configuredMaps = configuredMaps + 1
+				local nativeMobs = {}
+				local occupiedPositions = {}
+				local children = huntMap.Children
+				for i = 1, #children do
+					local child = children[i]
+					if isvalid(child) and isvalid(child.Monster) then
+						local pos = isvalid(child.TransformComponent) and child.TransformComponent.Position or Vector3(0, 0, 0)
+						self:ConfigureMonsterForMap(child, mapInfo, pos)
+						table.insert(nativeMobs, child)
+						table.insert(occupiedPositions, pos)
+					end
+				end
+		
+				local nativeCount = #nativeMobs
+				totalMobs = totalMobs + nativeCount
+		
+				-- Only augment maps that natively have fewer than TargetDensePerMap official spawn anchors,
+				-- and STRICTLY anchor clones onto the exact official monster footholds (zero deformed roof/wall spawns!)
+				local desiredTotal = math.min(self.MaxDensePerMap, math.max(nativeCount, self.TargetDensePerMap))
+				local needToAdd = math.max(0, desiredTotal - nativeCount)
+				if needToAdd > 0 and nativeCount > 0 then
+					local added = 0
+					local attempts = 0
+					local maxAttempts = needToAdd * 3
+					while added < needToAdd and attempts < maxAttempts do
+						attempts = attempts + 1
+						local srcMob = nativeMobs[((attempts - 1) % nativeCount) + 1]
+						local dirSign = (attempts % 2 == 0) and 1 or -1
+						local spawnPos = self:FindAnchoredSpawnSlot(huntMap, srcMob, occupiedPositions, dirSign)
+						if spawnPos then
+							local cloned = _SpawnService:SpawnByEntity(srcMob, "MapMob_" .. tostring(added + 1), spawnPos, huntMap)
+							if isvalid(cloned) then
+								self:ConfigureMonsterForMap(cloned, mapInfo, spawnPos)
+								table.insert(occupiedPositions, spawnPos)
+								added = added + 1
+								totalMobs = totalMobs + 1
+								totalAdded = totalAdded + 1
+							end
+						end
+					end
+				end
+			end
+		end
+		
+		log("[FieldSpawnerLogic] Official-anchor 1x population ready: " .. tostring(totalMobs) .. " monsters (+" .. tostring(totalAdded) .. " anchored) across " .. tostring(configuredMaps) .. " hunting grounds!")
+	end
+
+end

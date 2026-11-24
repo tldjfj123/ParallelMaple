@@ -1,0 +1,406 @@
+@Logic
+script EnhanceLogic extends Logic
+
+	@ExecSpace("Server")
+	method void RequestScroll(string uid, string scrollId, boolean repeatAll)
+		_GameDataLogic:EnsureInit()
+		local profile = _PlayerDataLogic:GetServerProfile(senderUserId)
+		if not profile then return end
+		local item = _PlayerDataLogic:FindItemByUid(profile, uid)
+		if not item then return end
+		if item.isDestroyed then
+			self:SendResult(senderUserId, false, "파괴된 장비의 흔적에는 주문서를 사용할 수 없습니다.")
+			return
+		end
+		
+		local master = _GameDataLogic:GetItemMaster(item.itemId)
+		local scroll = _GameDataLogic.Scrolls[scrollId]
+		if not master or not scroll then return end
+		if not master.canScroll then
+			self:SendResult(senderUserId, false, "이 장비는 주문서 강화가 불가능합니다.")
+			return
+		end
+		
+		-- Special scrolls
+		if scroll.kind == "clean_slate" then
+			if (item.scrollFail or 0) <= 0 then
+				self:SendResult(senderUserId, false, "복구할 실패 횟수가 없습니다.")
+				return
+			end
+			if profile.spellTrace < scroll.traceCost then
+				self:SendResult(senderUserId, false, "주문의 흔적이 부족합니다.")
+				return
+			end
+			profile.spellTrace = profile.spellTrace - scroll.traceCost
+			local ok = _UtilLogic:RandomDouble() < scroll.rate
+			if ok then
+				item.scrollFail = item.scrollFail - 1
+				item.upgradeRemaining = item.upgradeRemaining + 1
+				self:FinishEnhance(senderUserId, true, "순백의 주문서 성공! 업그레이드 횟수 +1 복구")
+			else
+				self:FinishEnhance(senderUserId, false, "순백의 주문서 실패...")
+			end
+			return
+		end
+		
+		if scroll.kind == "innocence" then
+			if profile.spellTrace < scroll.traceCost then
+				self:SendResult(senderUserId, false, "주문의 흔적이 부족합니다.")
+				return
+			end
+			profile.spellTrace = profile.spellTrace - scroll.traceCost
+			local ok = _UtilLogic:RandomDouble() < scroll.rate
+			if ok then
+				item.upgradeMax = master.upgradeMax
+				item.upgradeRemaining = master.upgradeMax
+				item.hammerUsed = false
+				item.scrollSuccess = 0
+				item.scrollFail = 0
+				item.scrollBonus = { mainStat = 0, att = 0 }
+				item.star = 0
+				item.consecutiveFailDrop = 0
+				self:FinishEnhance(senderUserId, true, "이노센트 성공! 주문서·스타포스 초기화 (잠재능력 유지)")
+			else
+				self:FinishEnhance(senderUserId, false, "이노센트 주문서 실패...")
+			end
+			return
+		end
+		
+		if scroll.kind == "hammer" then
+			if item.hammerUsed then
+				self:SendResult(senderUserId, false, "황금 망치는 장비당 1회만 사용 가능합니다.")
+				return
+			end
+			if profile.spellTrace < scroll.traceCost then
+				self:SendResult(senderUserId, false, "주문의 흔적이 부족합니다.")
+				return
+			end
+			profile.spellTrace = profile.spellTrace - scroll.traceCost
+			item.hammerUsed = true
+			item.upgradeMax = item.upgradeMax + 1
+			item.upgradeRemaining = item.upgradeRemaining + 1
+			self:FinishEnhance(senderUserId, true, "황금 망치 적용! 업그레이드 가능 횟수 +1")
+			return
+		end
+		
+		-- Normal Spell Trace scroll (100/70/30/15%)
+		if item.upgradeRemaining <= 0 then
+			self:SendResult(senderUserId, false, "남은 업그레이드 횟수가 없습니다. 스타포스를 진행하세요!")
+			return
+		end
+		
+		local attempts = repeatAll and item.upgradeRemaining or 1
+		local succCnt = 0
+		local failCnt = 0
+		local isWeapon = (master.slot == "Weapon")
+		
+		for _ = 1, attempts do
+			if item.upgradeRemaining <= 0 or profile.spellTrace < scroll.traceCost then
+				break
+			end
+			profile.spellTrace = profile.spellTrace - scroll.traceCost
+			item.upgradeRemaining = item.upgradeRemaining - 1
+			if _UtilLogic:RandomDouble() < scroll.rate then
+				succCnt = succCnt + 1
+				item.scrollSuccess = (item.scrollSuccess or 0) + 1
+				item.scrollBonus.att = (item.scrollBonus.att or 0) + (isWeapon and scroll.weaponAtt or scroll.armorAtt)
+				item.scrollBonus.mainStat = (item.scrollBonus.mainStat or 0) + (isWeapon and scroll.weaponStat or scroll.armorStat)
+			else
+				failCnt = failCnt + 1
+				item.scrollFail = (item.scrollFail or 0) + 1
+			end
+		end
+		
+		if succCnt == 0 and failCnt == 0 then
+			self:SendResult(senderUserId, false, "주문의 흔적이 부족합니다.")
+			return
+		end
+		
+		local msg = string.format("%s 결과: 성공 %d회 / 실패 %d회 (남은 업횟 %d)", scroll.name, succCnt, failCnt, item.upgradeRemaining)
+		self:FinishEnhance(senderUserId, succCnt > 0, msg)
+	end
+
+	@ExecSpace("Server")
+	method void RequestStarforce(string uid, boolean useSafeguard, boolean starCatch)
+		_GameDataLogic:EnsureInit()
+		local profile = _PlayerDataLogic:GetServerProfile(senderUserId)
+		if not profile then return end
+		local item = _PlayerDataLogic:FindItemByUid(profile, uid)
+		if not item then return end
+		
+		if item.isDestroyed then
+			self:SendResult(senderUserId, false, "파괴된 장비의 흔적입니다. 동일 장비 스페어로 12성 복구하세요!")
+			return
+		end
+		
+		local master = _GameDataLogic:GetItemMaster(item.itemId)
+		if not master or not master.canStarforce then
+			self:SendResult(senderUserId, false, "이 장비는 스타포스 강화가 불가능합니다.")
+			return
+		end
+		
+		if item.upgradeRemaining > 0 then
+			self:SendResult(senderUserId, false, "주문서 업그레이드 횟수(남은 " .. tostring(item.upgradeRemaining) .. "회)를 모두 소진해야 스타포스가 열립니다!")
+			return
+		end
+		
+		local curStar = item.star or 0
+		local maxStar = _GameDataLogic:GetMaxStar(item.reqLevel)
+		if curStar >= maxStar then
+			self:SendResult(senderUserId, false, "이미 최대 성수(" .. tostring(maxStar) .. "성)에 도달했습니다!")
+			return
+		end
+		
+		local row = _GameDataLogic.StarforceTable[curStar]
+		if not row then return end
+		
+		local applySafeguard = useSafeguard and row.canSafeguard
+		local cost = _GameDataLogic:GetStarforceMesoCost(item.reqLevel, curStar, applySafeguard)
+		if profile.meso < cost then
+			self:SendResult(senderUserId, false, "메소가 부족합니다! (필요: " .. _GameDataLogic:FormatNumber(cost) .. ")")
+			return
+		end
+		profile.meso = profile.meso - cost
+		
+		-- Chance Time check (2 consecutive drops -> 100% success)
+		if (item.consecutiveFailDrop or 0) >= 2 then
+			item.star = curStar + 1
+			item.consecutiveFailDrop = 0
+			self:FinishEnhance(senderUserId, true, "★ 찬스 타임 확정 성공! " .. tostring(item.star) .. "성 달성!")
+			return
+		end
+		
+		local successRate = row.success
+		local keepRate = row.keep
+		local dropRate = row.drop
+		local boomRate = row.boom
+		
+		if applySafeguard then
+			if dropRate > 0 then
+				dropRate = dropRate + boomRate
+			else
+				keepRate = keepRate + boomRate
+			end
+			boomRate = 0
+		end
+		
+		if starCatch then
+			local boosted = math.min(1.0, successRate * 1.05)
+			local delta = boosted - successRate
+			local failTotal = keepRate + dropRate + boomRate
+			if failTotal > 0 then
+				local scale = math.max(0, (failTotal - delta) / failTotal)
+				keepRate = keepRate * scale
+				dropRate = dropRate * scale
+				boomRate = boomRate * scale
+			end
+			successRate = boosted
+		end
+		
+		local roll = _UtilLogic:RandomDouble()
+		if roll < successRate then
+			item.star = curStar + 1
+			item.consecutiveFailDrop = 0
+			self:FinishEnhance(senderUserId, true, "★ 스타포스 성공! " .. tostring(curStar) .. "성 → " .. tostring(item.star) .. "성!")
+		elseif roll < successRate + keepRate then
+			item.consecutiveFailDrop = 0
+			self:FinishEnhance(senderUserId, false, "스타포스 실패 (성수 유지: " .. tostring(curStar) .. "성)")
+		elseif roll < successRate + keepRate + dropRate then
+			item.star = math.max(0, curStar - 1)
+			item.consecutiveFailDrop = (item.consecutiveFailDrop or 0) + 1
+			local ct = (item.consecutiveFailDrop >= 2) and " [다음 찬스타임 100%!]" or ""
+			self:FinishEnhance(senderUserId, false, "스타포스 실패 (하락: " .. tostring(curStar) .. "성 → " .. tostring(item.star) .. "성)" .. ct)
+		else
+			-- Destruction -> Equipment Trace!
+			item.isDestroyed = true
+			item.star = 0
+			item.consecutiveFailDrop = 0
+			if profile.equipped[item.slot] == item.uid then
+				profile.equipped[item.slot] = nil
+			end
+			self:FinishEnhance(senderUserId, false, "💥 장비가 파괴되어 '장비의 흔적'이 되었습니다! 동일 장비 스페어로 12성 복구 가능")
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestRestoreTrace(string traceUid)
+		_GameDataLogic:EnsureInit()
+		local profile = _PlayerDataLogic:GetServerProfile(senderUserId)
+		if not profile then return end
+		local traceItem = _PlayerDataLogic:FindItemByUid(profile, traceUid)
+		if not traceItem or not traceItem.isDestroyed then
+			self:SendResult(senderUserId, false, "복구할 파괴 흔적 장비가 아닙니다.")
+			return
+		end
+		
+		-- Find matching spare (same itemId, not destroyed, not equipped, different uid)
+		local spareIdx = nil
+		for idx, cand in ipairs(profile.inventory) do
+			if cand.uid ~= traceItem.uid
+				and cand.itemId == traceItem.itemId
+				and not cand.isDestroyed
+				and not _PlayerDataLogic:IsItemEquipped(profile, cand.uid) then
+				spareIdx = idx
+				break
+			end
+		end
+		
+		if not spareIdx then
+			self:SendResult(senderUserId, false, "인벤토리에 미장착 동일 장비(스페어)가 없습니다!")
+			return
+		end
+		
+		table.remove(profile.inventory, spareIdx)
+		traceItem.isDestroyed = false
+		traceItem.star = 12
+		traceItem.consecutiveFailDrop = 0
+		self:FinishEnhance(senderUserId, true, "✨ 장비의 흔적 전승 완료! ★12성으로 복구되었습니다! (주문서/잠재 보존)")
+	end
+
+	@ExecSpace("ServerOnly")
+	method any RollPotentialLines(string slot, string grade)
+		local poolKey = _GameDataLogic:GetPoolKeyForSlot(slot)
+		local slotPools = _GameDataLogic.PotentialPools[poolKey]
+		local gradeIdx = _GameDataLogic.PotentialGradeIndex[grade] or 1
+		local lowerIdx = math.max(1, gradeIdx - 1)
+		local lowerGrade = _GameDataLogic.PotentialGrades[lowerIdx]
+		
+		local lines = {}
+		for i = 1, 3 do
+			local lineGrade = grade
+			if i == 2 then
+				if _UtilLogic:RandomDouble() >= 0.10 then
+					lineGrade = lowerGrade
+				end
+			elseif i == 3 then
+				if _UtilLogic:RandomDouble() >= 0.05 then
+					lineGrade = lowerGrade
+				end
+			end
+			local pool = slotPools[lineGrade] or slotPools.Rare
+			local pick = pool[_UtilLogic:RandomIntegerRange(1, #pool)]
+			lines[i] = {
+				stat = pick.stat,
+				value = pick.value,
+				label = pick.label,
+				grade = lineGrade,
+			}
+		end
+		return lines
+	end
+
+	@ExecSpace("Server")
+	method void RequestCube(string uid, string cubeId)
+		_GameDataLogic:EnsureInit()
+		local profile = _PlayerDataLogic:GetServerProfile(senderUserId)
+		if not profile then return end
+		local item = _PlayerDataLogic:FindItemByUid(profile, uid)
+		if not item then return end
+		
+		if item.isDestroyed then
+			self:SendResult(senderUserId, false, "파괴된 장비의 흔적에는 큐브를 사용할 수 없습니다.")
+			return
+		end
+		if item.pendingPotential then
+			self:SendResult(senderUserId, false, "먼저 블랙 큐브의 BEFORE / AFTER 결과를 선택해 주세요!")
+			return
+		end
+		
+		local cube = _GameDataLogic.Cubes[cubeId]
+		if not cube then return end
+		local owned = profile.cubes[cubeId] or 0
+		if owned <= 0 then
+			self:SendResult(senderUserId, false, cube.name .. "가 부족합니다!")
+			return
+		end
+		profile.cubes[cubeId] = owned - 1
+		
+		local curGrade = item.potentialGrade or "Rare"
+		local curIdx = _GameDataLogic.PotentialGradeIndex[curGrade] or 1
+		local newIdx = curIdx
+		local tieredUp = false
+		
+		if curIdx < cube.maxGradeIndex then
+			local rate = cube.rates[curIdx] or 0
+			local pityMax = cube.pity[curIdx] or 999
+			local pity = (item.cubePityCount or 0) + 1
+		
+			if pity >= pityMax or _UtilLogic:RandomDouble() < rate then
+				newIdx = curIdx + 1
+				tieredUp = true
+				item.cubePityCount = 0
+			else
+				item.cubePityCount = pity
+			end
+		end
+		
+		local newGrade = _GameDataLogic.PotentialGrades[newIdx]
+		local newLines = self:RollPotentialLines(item.slot, newGrade)
+		
+		if cube.chooseResult then
+			-- Black Cube: store candidate for Before/After selection
+			-- (Note: if tieredUp happened, MapleStory keeps tier-up if applied, or lets user choose)
+			item.pendingPotential = {
+				grade = newGrade,
+				potentials = newLines,
+				tieredUp = tieredUp,
+			}
+			local msg = tieredUp
+				and ("★ 블랙 큐브 등급업! [" .. _GameDataLogic:GetGradeKorean(newGrade) .. "] BEFORE / AFTER를 선택하세요!")
+				or "블랙 큐브 사용 완료 — BEFORE / AFTER 중 하나를 선택하세요!"
+			self:FinishEnhance(senderUserId, true, msg)
+		else
+			item.potentialGrade = newGrade
+			item.potentials = newLines
+			local msg = tieredUp
+				and ("★★★ 잠재능력 등급업! [" .. _GameDataLogic:GetGradeKorean(newGrade) .. "] 달성! ★★★")
+				or (cube.name .. " 적용 완료 [" .. _GameDataLogic:GetGradeKorean(newGrade) .. "]")
+			self:FinishEnhance(senderUserId, tieredUp, msg)
+		end
+	end
+
+	@ExecSpace("Server")
+	method void RequestConfirmBlackCube(string uid, boolean applyNew)
+		_GameDataLogic:EnsureInit()
+		local profile = _PlayerDataLogic:GetServerProfile(senderUserId)
+		if not profile then return end
+		local item = _PlayerDataLogic:FindItemByUid(profile, uid)
+		if not item or not item.pendingPotential then return end
+		
+		if applyNew then
+			item.potentialGrade = item.pendingPotential.grade
+			item.potentials = item.pendingPotential.potentials
+			item.pendingPotential = nil
+			self:FinishEnhance(senderUserId, true, "블랙 큐브: 새 옵션(AFTER)을 적용했습니다!")
+		else
+			item.pendingPotential = nil
+			self:FinishEnhance(senderUserId, true, "블랙 큐브: 기존 옵션(BEFORE)을 유지했습니다.")
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void FinishEnhance(string userId, boolean success, string message)
+		_PlayerDataLogic:PushSnapshotToClient(userId)
+		_PlayerDataLogic:SaveProfileAsync(userId)
+		self:SendResult(userId, success, message)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void SendResult(string userId, boolean success, string message)
+		local payload = _HttpService:JSONEncode({ success = success, message = message })
+		self:OnEnhanceResult(payload, userId)
+	end
+
+	@ExecSpace("Client")
+	method void OnEnhanceResult(string jsonPayload)
+		local res = _HttpService:JSONDecode(jsonPayload)
+		if not res then return end
+		if _UIToast then
+			_UIToast:ShowMessage(res.message)
+		end
+		if _UIIdleManager then
+			_UIIdleManager:SetEnhanceLog(res.message)
+		end
+	end
+
+end

@@ -1,0 +1,159 @@
+@Component
+script Monster extends Component
+
+	@Sync
+	property number MaxHp = 180
+
+	@Sync
+	property number Hp = 0
+
+	@Sync
+	property boolean RespawnOn = true
+
+	@Sync
+	@HideFromInspector
+	property boolean IsDead = false
+
+	@Sync
+	property number RespawnDelay = 1.6
+
+	@Sync
+	property number DestroyDelay = 0.50
+
+	property integer ExpReward = 40
+
+	property integer MesoReward = 600
+
+	property integer TraceReward = 20
+
+	@HideFromInspector
+	property any HitContributors = nil
+
+	@HideFromInspector
+	property any HomePosition = nil
+
+	property string DamageSkinRUID = "02c22d93421b4038b3c413b3e40b57ec"
+
+	property string DeathSoundRUID = "30e5a789e9204111924cafc1bc1ce33f"
+
+	property string HitSoundRUID = "0f213b255ab34a0e8ed258c89f3b62fe"
+
+	method void OnBeginPlay()
+		self.Hp = self.MaxHp
+		self.HitContributors = {}
+		
+		if self.HomePosition == nil and isvalid(self.Entity.TransformComponent) then
+			local p = self.Entity.TransformComponent.Position
+			self.HomePosition = Vector3(p.x, p.y, p.z)
+		end
+		
+		local skinSetting = self.Entity.DamageSkinSettingComponent
+		if isvalid(skinSetting) then
+			skinSetting.DamageSkinId = DataRef(self.DamageSkinRUID)
+		end
+	end
+
+	@ExecSpace("Multicast")
+	method void PlayMonsterSound(string ruid, number vol)
+		if ruid and ruid ~= "" then
+			_SoundService:PlaySound(ruid, vol)
+		end
+	end
+
+	@ExecSpace("Multicast")
+	method void PlayDeathFade(number duration)
+		if isvalid(self.Entity) and _CombatVisualLogic then
+			_CombatVisualLogic:StartMonsterDeathFade(self.Entity, duration)
+		end
+	end
+
+	@ExecSpace("Multicast")
+	method void ResetMonsterVisual()
+		if isvalid(self.Entity) and isvalid(self.Entity.SpriteRendererComponent) then
+			self.Entity.SpriteRendererComponent.Color = Color(1, 1, 1, 1)
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void Dead()
+		self.IsDead = true
+		self:PlayMonsterSound(self.DeathSoundRUID, 0.78)
+		self:PlayDeathFade(self.DestroyDelay)
+		
+		-- Natural MapleStory pacing: award EXP + erupt floor drops 0.15s into the monster's death fade!
+		if self.HitContributors and _PlayerDataLogic then
+			local monPos = isvalid(self.Entity.TransformComponent) and self.Entity.TransformComponent.WorldPosition or Vector3(0, 0, 0)
+			local contributors = self.HitContributors
+			local expR = self.ExpReward
+			local mesoR = self.MesoReward
+			local traceR = self.TraceReward
+			_TimerService:SetTimerOnce(function()
+				for userId, _ in pairs(contributors) do
+					_PlayerDataLogic:GrantMonsterKillRewardWithDrops(userId, monPos, expR, mesoR, traceR)
+				end
+			end, 0.15)
+		end
+		self.HitContributors = {}
+		
+		local delayHide = function()
+			if not isvalid(self.Entity) then return end
+			self.Entity:SetVisible(false)
+			self.Entity:SetEnable(false)
+		
+			if self.RespawnOn == false then
+				self.Entity:Destroy()
+			end
+		end
+		
+		_TimerService:SetTimerOnce(delayHide, self.DestroyDelay)
+	end
+
+	@ExecSpace("ServerOnly")
+	method void Respawn()
+		if not isvalid(self.Entity) then return end
+		self.IsDead = false
+		self.HitContributors = {}
+		self.Hp = self.MaxHp
+		
+		-- Always respawn cleanly back at the official map spawn coordinate (prevents corner piling!)
+		if self.HomePosition and isvalid(self.Entity.TransformComponent) then
+			self.Entity.TransformComponent.Position = Vector3(self.HomePosition.x, self.HomePosition.y, self.HomePosition.z)
+		end
+		
+		self.Entity:SetEnable(true)
+		self.Entity:SetVisible(true)
+		self:ResetMonsterVisual()
+	end
+
+	@ExecSpace("ServerOnly")
+	@EventSender("Self")
+	handler HandleHitEvent(HitEvent event)
+		local TotalDamage = event.TotalDamage
+		
+		-- Record attacking player as contributor
+		if isvalid(event.AttackerEntity) and isvalid(event.AttackerEntity.PlayerComponent) then
+			if not self.HitContributors then
+				self.HitContributors = {}
+			end
+			self.HitContributors[event.AttackerEntity.PlayerComponent.UserId] = true
+		end
+		
+		local originalHp = self.Hp
+		self.Hp = self.Hp - TotalDamage
+		
+		if self.Hp > 0 or originalHp <= 0 then
+			if originalHp > 0 then
+				self:PlayMonsterSound(self.HitSoundRUID, 0.45)
+			end
+			return
+		end
+		
+		self:Dead()
+		local timerFunc = function() self:Respawn() end
+		
+		if self.RespawnOn then
+			_TimerService:SetTimerOnce(timerFunc, self.RespawnDelay)
+		end
+	end
+
+end

@@ -1,0 +1,733 @@
+@Logic
+script CombatVisualLogic extends Logic
+
+	property any ActiveProjectiles = nil
+
+	property any ActiveDrops = nil
+
+	property any ActiveLevelUps = nil
+
+	property any ActiveDeathFades = nil
+
+	property any ActivePets = nil
+
+	property string ActivePetsMap = ""
+
+	property boolean MagnetPetEnabled = true
+
+	property string PickUpSoundRUID = "acf66093cbbe421398da26a335f9616e"
+
+	property string DropSoundRUID = "0467a9d8aca04072bdefd96b24a1eef6"
+
+	property string MesoDropRUID = "02a489cccff24a139a6c3582a5871f58"
+
+	property string MesoBillDropRUID = "1f8be6f5d9954fcca5b0cbb90d6afd3a"
+
+	property string MesoBagDropRUID = "a3bd586b3fb445ce93317e7528962f7a"
+
+	property string TraceDropRUID = "e9ac9c4fbd09411f91e98d62deb12ff2"
+
+	property string CubeDropRUID = "361260af38c44fc5bb749adf55dd8d0f"
+
+	property string RedCubeDropRUID = "5ba62f870731481d94762fcf79ea513b"
+
+	property string BlackCubeDropRUID = "3171e0bafe3549a1bda59aa3bc31931c"
+
+	property string EquipDropRUID = "2e0252d9351b41799f176c4e2b3ea99f"
+
+	@ExecSpace("ClientOnly")
+	method void OnBeginPlay()
+		self.ActiveProjectiles = {}
+		self.ActiveDrops = {}
+		self.ActiveLevelUps = {}
+		self.ActiveDeathFades = {}
+		self.ActivePets = {}
+		self.ActivePetsMap = ""
+	end
+
+	@ExecSpace("ClientOnly")
+	method void StartMonsterDeathFade(Entity mobEntity, number duration)
+		if not isvalid(mobEntity) then return end
+		if not self.ActiveDeathFades then self.ActiveDeathFades = {} end
+		table.insert(self.ActiveDeathFades, {
+			entity = mobEntity,
+			elapsed = 0,
+			duration = math.max(0.25, duration or 0.45),
+		})
+	end
+
+	@ExecSpace("ClientOnly")
+	method void ToggleMagnetPet()
+		self.MagnetPetEnabled = not self.MagnetPetEnabled
+		if _UIToast then
+			if self.MagnetPetEnabled then
+				_UIToast:ShowMessage("★ 멀티펫 자석펫 ON! (쁘띠 루나 · 퍼피 · 키티 광역 자동 줍기)")
+			else
+				_UIToast:ShowMessage("자석펫 OFF (일반 3펫 근거리 줍기 모드)")
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void EnsureMultiPets(Entity lp)
+		if not isvalid(lp) or not isvalid(lp.CurrentMap) or not isvalid(lp.TransformComponent) then return end
+		local mapEnt = lp.CurrentMap
+		local mapName = lp.CurrentMapName
+		if self.ActivePetsMap == mapName and self.ActivePets and #self.ActivePets == 3 and isvalid(self.ActivePets[1].entity) then
+			return
+		end
+		
+		-- Clean up previous map's pet entities
+		if self.ActivePets then
+			for _, pt in ipairs(self.ActivePets) do
+				if isvalid(pt.entity) then pt.entity:Destroy() end
+			end
+		end
+		self.ActivePets = {}
+		self.ActivePetsMap = mapName
+		
+		local basePos = lp.TransformComponent.WorldPosition
+		-- 3 Verified Official MapleStory Pets — ALL cleanly grounded together at the EXACT same ground level!
+		local petDefs = {
+			{ name = "Pet_Luna",  ruid = "7477bb1b03794ad8b0ccaf16f1679dd6", followX = -0.82, groundOffset = -0.10, isFloating = false, speed = 7.2, order = 18 },
+			{ name = "Pet_Puppy", ruid = "fefcffdd98274b81bfbf2b66029a2de9", followX = -1.52, groundOffset = -0.12, isFloating = false, speed = 6.6, order = 17 },
+			{ name = "Pet_Kitty", ruid = "c8995be2cc2a48ae9b21291bc126ecb0", followX = -2.22, groundOffset = -0.12, isFloating = false, speed = 6.4, order = 16 },
+		}
+		
+		for idx, def in ipairs(petDefs) do
+			local sx = basePos.x + def.followX
+			local sy = self:FindGroundY(mapEnt, sx, basePos.y) + (def.groundOffset or -0.12)
+			local ent = _SpawnService:SpawnByModelId("model://fielddropitem", def.name .. "_" .. _UtilLogic:NewGuid(), Vector3(sx, sy, 0), mapEnt)
+			if isvalid(ent) then
+				if isvalid(ent.SpriteRendererComponent) then
+					ent.SpriteRendererComponent.SortingLayer = "MapLayer7"
+					ent.SpriteRendererComponent.SpriteRUID = def.ruid
+					ent.SpriteRendererComponent.OrderInLayer = def.order
+				end
+				table.insert(self.ActivePets, {
+					idx = idx,
+					entity = ent,
+					def = def,
+					x = sx,
+					y = sy,
+					targetDropId = nil,
+					facing = 1,
+					phase = idx * 2.1,
+				})
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void PlayClassicLevelUpEffect(Entity targetEntity, boolean isJobAdvance)
+		if not isvalid(targetEntity) or not isvalid(targetEntity.CurrentMap) then return end
+		if not self.ActiveLevelUps then self.ActiveLevelUps = {} end
+		
+		local mapEnt = targetEntity.CurrentMap
+		local basePos = isvalid(targetEntity.TransformComponent) and targetEntity.TransformComponent.WorldPosition or Vector3(0, 0, 0)
+		
+		-- Layer 1: Classic MapleStory Golden Light Pillar rising from character feet!
+		local pillarEnt = _SpawnService:SpawnByModelId("model://fielddropitem", "LvUpPillar_" .. _UtilLogic:NewGuid(), Vector3(basePos.x, basePos.y + 1.55, 0), mapEnt)
+		if isvalid(pillarEnt) and isvalid(pillarEnt.SpriteRendererComponent) then
+			pillarEnt.SpriteRendererComponent.SortingLayer = "MapLayer7"
+			pillarEnt.SpriteRendererComponent.OrderInLayer = 200
+			pillarEnt.SpriteRendererComponent.SpriteRUID = "c716f121c49c4ba28c30ddd7cf7b7d51" -- Official 199x309 golden pillar!
+		end
+		
+		-- Layer 2: Official Classic MapleStory LEVEL UP! burst & floating banner sequence!
+		local burstEnt = _SpawnService:SpawnByModelId("model://fielddropitem", "LvUpBurst_" .. _UtilLogic:NewGuid(), Vector3(basePos.x, basePos.y + 1.05, 0), mapEnt)
+		if isvalid(burstEnt) and isvalid(burstEnt.SpriteRendererComponent) then
+			burstEnt.SpriteRendererComponent.SortingLayer = "MapLayer7"
+			burstEnt.SpriteRendererComponent.OrderInLayer = 210
+			burstEnt.SpriteRendererComponent.SpriteRUID = "08df7b1dcacf4661923f1679dbcb409a"
+		end
+		
+		local frames = {
+			{ t = 0.00, ruid = "08df7b1dcacf4661923f1679dbcb409a", yOff = 0.72, scale = 0.85 }, -- energy gather
+			{ t = 0.10, ruid = "b233c8c6f4c54fe097e6d026801ff1b9", yOff = 0.80, scale = 0.88 }, -- rising light 1
+			{ t = 0.20, ruid = "4cd6742718d34684a2467ee78b7fe8f0", yOff = 0.88, scale = 0.90 }, -- rising light 2
+			{ t = 0.30, ruid = "600388ddf6164e47ab05af84775d3b28", yOff = 0.96, scale = 0.92 }, -- classic LEVEL UP burst 1
+			{ t = 0.44, ruid = "dcf33b4d9ecb4d81a943f60de66295bd", yOff = 1.02, scale = 0.95 }, -- classic LEVEL UP bright halo
+			{ t = 0.58, ruid = "165760e9ef224e3483e3b20e1c18b852", yOff = 1.08, scale = 0.96 }, -- classic LEVEL UP glowing ring
+			{ t = 0.74, ruid = "91365655e5734f8e81d12af6fea355cb", yOff = 1.15, scale = 0.95 }, -- classic LEVEL UP ascent
+			{ t = 0.92, ruid = "aec9316522d3466fb833b5b0060cd59e", yOff = 1.38, scale = 0.95 }, -- crisp golden-green LEVEL UP banner!
+			{ t = 1.24, ruid = "8b8f390727eb49e6bd26253ed0cb19aa", yOff = 1.50, scale = 0.98 }, -- gleaming LEVEL UP glint!
+			{ t = 1.42, ruid = "aec9316522d3466fb833b5b0060cd59e", yOff = 1.58, scale = 0.95 }, -- lingering classic LEVEL UP!
+		}
+		
+		table.insert(self.ActiveLevelUps, {
+			target = targetEntity,
+			mapName = mapEnt.Name,
+			pillar = pillarEnt,
+			burst = burstEnt,
+			frames = frames,
+			lastFrameIdx = 0,
+			elapsed = 0,
+			duration = 2.35,
+			isJobAdvance = isJobAdvance,
+		})
+	end
+
+	@ExecSpace("ServerOnly")
+	method void ApplyWeaponCostume(Entity playerEntity, string jobId, string weaponItemId)
+		if not isvalid(playerEntity) then return end
+		local costume = playerEntity.CostumeManagerComponent
+		if not isvalid(costume) then return end
+		
+		_GameDataLogic:EnsureInit()
+		local ruid = ""
+		local isTwoHanded = false
+		
+		if jobId == "warrior" then
+			local m = _GameDataLogic:GetItemMaster(weaponItemId)
+			if m and m.avatarItemRuid and m.avatarItemRuid ~= "" then
+				ruid = m.avatarItemRuid
+			else
+				ruid = "acb65b187f21498d9ad1905359f2f759" -- 우트가르드 세이버
+			end
+			isTwoHanded = false
+		elseif jobId == "magician" then
+			ruid = "4684b7308f024c9c8d8d155811e1e92c" -- 우트가르드 스태프
+			isTwoHanded = false
+		elseif jobId == "bowman" then
+			ruid = "a82ee0c433fd46b1ae08111b23c44251" -- 우트가르드 보우
+			isTwoHanded = true
+		elseif jobId == "thief" then
+			ruid = "85595db70e5d4a21b99773ccab378488" -- 아대
+			isTwoHanded = true
+		end
+		
+		costume.UseCustomEquipOnly = false
+		if isTwoHanded then
+			costume.CustomOneHandedWeaponEquip = ""
+			costume.CustomTwoHandedWeaponEquip = ruid
+		else
+			costume.CustomTwoHandedWeaponEquip = ""
+			costume.CustomOneHandedWeaponEquip = ruid
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void PlayAvatarAttackMotion(Entity playerEntity, string actionName)
+		if not isvalid(playerEntity) then return end
+		local avatar = playerEntity.AvatarRendererComponent
+		if isvalid(avatar) then
+			local body = avatar:GetBodyEntity()
+			if isvalid(body) then
+				local ev = ActionStateChangedEvent()
+				ev.CoreActionName = actionName
+				ev.PartsActionName = actionName
+				ev.PlayRate = 1.4
+				ev.PlayType = SpriteAnimClipPlayType.Onetime
+				body:SendEvent(ev)
+				return
+			end
+		end
+		if isvalid(playerEntity.StateComponent) then
+			playerEntity.StateComponent:ChangeState("ATTACK")
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SpawnProjectile(Entity caster, string projRuid, Vector3 startPos, Vector3 endPos, number duration, number dir, string hitEffectRuid, string hitSoundRuid)
+		if not isvalid(caster) or not isvalid(caster.CurrentMap) then return end
+		if not self.ActiveProjectiles then self.ActiveProjectiles = {} end
+		
+		local ent = _SpawnService:SpawnByModelId("model://fielddropitem", "Proj_" .. _UtilLogic:NewGuid(), startPos, caster.CurrentMap)
+		if not isvalid(ent) then return end
+		
+		if isvalid(ent.SpriteRendererComponent) then
+			ent.SpriteRendererComponent.SortingLayer = "MapLayer7"
+			ent.SpriteRendererComponent.SpriteRUID = projRuid
+			ent.SpriteRendererComponent.FlipX = (dir > 0)
+			ent.SpriteRendererComponent.OrderInLayer = 20
+		end
+		
+		table.insert(self.ActiveProjectiles, {
+			entity = ent,
+			caster = caster,
+			startPos = startPos,
+			endPos = endPos,
+			elapsed = 0,
+			duration = math.max(0.08, duration),
+			dir = dir,
+			hitEffectRuid = hitEffectRuid,
+			hitSoundRuid = hitSoundRuid,
+		})
+	end
+
+	@ExecSpace("ClientOnly")
+	method number FindGroundY(Entity mapEntity, number x, number startY)
+		if isvalid(mapEntity) and isvalid(mapEntity.FootholdComponent) then
+			local fh = mapEntity.FootholdComponent:Raycast(Vector2(x, startY + 0.6), Vector2(0, -1), 10.0)
+			if fh then
+				return fh:GetYByX(x) + 0.16
+			end
+		end
+		return startY
+	end
+
+	@ExecSpace("ClientOnly")
+	method void SpawnFloorDrops(table dropsList)
+		local lp = _UserService.LocalPlayer
+		if not isvalid(lp) or not isvalid(lp.CurrentMap) then return end
+		if not self.ActiveDrops then self.ActiveDrops = {} end
+		
+		_GameDataLogic:EnsureInit()
+		local mapEnt = lp.CurrentMap
+		local count = #dropsList
+		if count > 0 and self.DropSoundRUID ~= "" then
+			_SoundService:PlaySound(self.DropSoundRUID, 0.55)
+		end
+		for idx, drop in ipairs(dropsList) do
+			local ruid = self.MesoDropRUID
+			if drop.kind == "meso" then
+				local amt = drop.amount or 0
+				if amt >= 5000 then
+					ruid = self.MesoBagDropRUID
+				elseif amt >= 1000 then
+					ruid = self.MesoBillDropRUID
+				else
+					ruid = self.MesoDropRUID
+				end
+			elseif drop.kind == "trace" then
+				ruid = self.TraceDropRUID
+			elseif drop.kind == "potion" then
+				local pInfo = (drop.potionId and _GameDataLogic.Potions) and _GameDataLogic.Potions[drop.potionId] or nil
+				ruid = (pInfo and pInfo.iconRuid) or "873b727f30ea41efb179d6537009413e"
+			elseif drop.kind == "etc" then
+				local eInfo = (drop.etcId and _GameDataLogic.EtcLoots) and _GameDataLogic.EtcLoots[drop.etcId] or nil
+				ruid = (eInfo and eInfo.iconRuid) or "25294310aac142b1bf51f27744258d6b"
+			elseif drop.kind == "cube" then
+				if drop.cubeType == "black" then
+					ruid = self.BlackCubeDropRUID
+				elseif drop.cubeType == "red" or drop.cubeType == "meister" then
+					ruid = self.RedCubeDropRUID
+				else
+					ruid = self.CubeDropRUID
+				end
+			elseif drop.kind == "equip" then
+				local master = (drop.itemId and _GameDataLogic) and _GameDataLogic:GetItemMaster(drop.itemId) or nil
+				ruid = (master and master.dropSpriteRuid and master.dropSpriteRuid ~= "") and master.dropSpriteRuid or self.EquipDropRUID
+			end
+		
+			-- Authentic MapleStory staggered fan-out spread with organic jitter!
+			local jitter = (_UtilLogic:RandomDouble() - 0.5) * 0.24
+			local spread = (idx - (count + 1) * 0.5) * 0.54 + jitter
+			local sx = drop.x
+			local sy = drop.y + 0.42
+			local tx = drop.x + spread
+			local ty = self:FindGroundY(mapEnt, tx, drop.y)
+			local spawnDelay = (idx - 1) * 0.045
+			local arcTime = 0.36 + (_UtilLogic:RandomDouble() * 0.08)
+			local peakH = 0.90 + (_UtilLogic:RandomDouble() * 0.24)
+		
+			local ent = _SpawnService:SpawnByModelId("model://fielddropitem", "Drop_" .. tostring(drop.dropId), Vector3(sx, sy, 0), mapEnt)
+			if isvalid(ent) then
+				if isvalid(ent.SpriteRendererComponent) then
+					ent.SpriteRendererComponent.SortingLayer = "MapLayer7"
+					ent.SpriteRendererComponent.SpriteRUID = ruid
+					ent.SpriteRendererComponent.OrderInLayer = 15 + (idx % 4)
+					if spawnDelay > 0.001 then
+						ent.SpriteRendererComponent.Color = Color(1, 1, 1, 0)
+					end
+				end
+				self.ActiveDrops[drop.dropId] = {
+					dropId = drop.dropId,
+					kind = drop.kind,
+					mapName = mapEnt.Name,
+					entity = ent,
+					startX = sx,
+					startY = sy,
+					landX = tx,
+					landY = ty,
+					age = 0,
+					spawnDelay = spawnDelay,
+					arcTime = arcTime,
+					peakHeight = peakH,
+					idleElapsed = 0,
+					pickupReadyDelay = 0.55, -- Rest visibly on the floor before pets vacuum!
+					state = "arc", -- arc -> idle -> magnet
+					magnetElapsed = 0,
+					magnetStartX = tx,
+					magnetStartY = ty,
+					magnetPetIdx = nil,
+				}
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method any FindNearestIdleDrop(Vector3 myPos, number maxDistX, number maxDistY)
+		if not self.ActiveDrops then return nil end
+		local lp = _UserService.LocalPlayer
+		if not isvalid(lp) then return nil end
+		local myMap = lp.CurrentMapName
+		
+		local best = nil
+		local bestDist = 999999
+		for _, d in pairs(self.ActiveDrops) do
+			if d.state == "idle" and d.mapName == myMap and isvalid(d.entity) then
+				local dx = math.abs(d.landX - myPos.x)
+				local dy = math.abs(d.landY - myPos.y)
+				if dx <= maxDistX and dy <= maxDistY and dx < bestDist then
+					bestDist = dx
+					best = d
+				end
+			end
+		end
+		return best
+	end
+
+	@ExecSpace("ClientOnly")
+	method void TryPickupNearby(number radiusX, number radiusY)
+		if not self.ActiveDrops then return end
+		local lp = _UserService.LocalPlayer
+		if not isvalid(lp) or not isvalid(lp.TransformComponent) then return end
+		local myPos = lp.TransformComponent.WorldPosition
+		local myMap = lp.CurrentMapName
+		
+		for dropId, d in pairs(self.ActiveDrops) do
+			if d.state == "idle" and d.mapName == myMap and isvalid(d.entity) then
+				local dx = math.abs(d.landX - myPos.x)
+				local dy = math.abs(d.landY - myPos.y)
+				if dx <= radiusX and dy <= radiusY then
+					d.state = "magnet"
+					d.magnetElapsed = 0
+					d.magnetStartX = d.landX
+					d.magnetStartY = d.landY
+					_SoundService:PlaySound(self.PickUpSoundRUID, 0.7)
+					_PlayerDataLogic:RequestPickupDrop(dropId)
+				end
+			end
+		end
+	end
+
+	@ExecSpace("ClientOnly")
+	method void OnUpdate(number delta)
+		-- 1) Update flying projectiles
+		if self.ActiveProjectiles then
+			local i = 1
+			while i <= #self.ActiveProjectiles do
+				local p = self.ActiveProjectiles[i]
+				p.elapsed = p.elapsed + delta
+				local t = math.min(1.0, p.elapsed / p.duration)
+				if isvalid(p.entity) and isvalid(p.entity.TransformComponent) then
+					local nx = p.startPos.x + (p.endPos.x - p.startPos.x) * t
+					local ny = p.startPos.y + (p.endPos.y - p.startPos.y) * t
+					p.entity.TransformComponent.WorldPosition = Vector3(nx, ny, p.startPos.z)
+				end
+				if t >= 1.0 then
+					if isvalid(p.entity) then
+						p.entity:Destroy()
+					end
+					if p.hitEffectRuid and p.hitEffectRuid ~= "" and isvalid(p.caster) then
+						_EffectService:PlayEffect(p.hitEffectRuid, p.caster, p.endPos, 0, Vector3(1, 1, 1), false, { FlipX = (p.dir > 0) })
+					end
+					if p.hitSoundRuid and p.hitSoundRuid ~= "" then
+						_SoundService:PlaySound(p.hitSoundRuid, 0.55)
+					end
+					table.remove(self.ActiveProjectiles, i)
+				else
+					i = i + 1
+				end
+			end
+		end
+		
+		-- 2) Update floor loot drops (parabolic bounce, gentle bob, auto-pickup on touch, magnet flight)
+		if self.ActiveDrops then
+			local lp = _UserService.LocalPlayer
+			local myPos = (isvalid(lp) and isvalid(lp.TransformComponent)) and lp.TransformComponent.WorldPosition or nil
+			local myMap = isvalid(lp) and lp.CurrentMapName or ""
+		
+			local toRemove = {}
+			for dropId, d in pairs(self.ActiveDrops) do
+				d.age = d.age + delta
+				if not isvalid(d.entity) or d.mapName ~= myMap or d.age > 45.0 then
+					if isvalid(d.entity) then d.entity:Destroy() end
+					table.insert(toRemove, dropId)
+				elseif d.state == "arc" then
+					local delay = d.spawnDelay or 0
+					if d.age < delay then
+						d.entity.TransformComponent.WorldPosition = Vector3(d.startX, d.startY, 0)
+					else
+						if isvalid(d.entity.SpriteRendererComponent) then
+							d.entity.SpriteRendererComponent.Color = Color(1, 1, 1, 1)
+						end
+						local localAge = d.age - delay
+						local t = math.min(1.0, localAge / (d.arcTime or 0.38))
+						local nx = d.startX + (d.landX - d.startX) * t
+						-- Authentic MapleStory parabolic fountain arc
+						local peakH = d.peakHeight or 0.95
+						local arcHeight = 4.0 * peakH * t * (1.0 - t)
+						local ny = d.startY + (d.landY - d.startY) * t + arcHeight
+						d.entity.TransformComponent.WorldPosition = Vector3(nx, ny, 0)
+						if t >= 1.0 then
+							d.state = "idle"
+							d.idleElapsed = 0
+						end
+					end
+				elseif d.state == "idle" then
+					d.idleElapsed = (d.idleElapsed or 0) + delta
+					local bob = math.sin(d.age * 5.2) * 0.055
+					d.entity.TransformComponent.WorldPosition = Vector3(d.landX, d.landY + bob, 0)
+					-- Touch pickup when character walks right over the item (after brief visibility pause!)
+					if d.idleElapsed >= (d.pickupReadyDelay or 0.55) and myPos and math.abs(d.landX - myPos.x) <= 0.72 and math.abs(d.landY - myPos.y) <= 0.85 then
+						d.state = "magnet"
+						d.magnetElapsed = 0
+						d.magnetStartX = d.landX
+						d.magnetStartY = d.landY
+						_SoundService:PlaySound(self.PickUpSoundRUID, 0.7)
+						_PlayerDataLogic:RequestPickupDrop(dropId)
+					end
+				elseif d.state == "magnet" then
+					d.magnetElapsed = d.magnetElapsed + delta
+					local t = math.min(1.0, d.magnetElapsed / 0.20)
+					local destX = myPos and myPos.x or d.magnetStartX
+					local destY = myPos and (myPos.y + 0.45) or d.magnetStartY
+					-- Fly straight into the magnet pet if vacuumed by a pet!
+					if d.magnetPetIdx and self.ActivePets and self.ActivePets[d.magnetPetIdx] then
+						local pet = self.ActivePets[d.magnetPetIdx]
+						destX = pet.x
+						destY = pet.y + 0.12
+					end
+					local nx = d.magnetStartX + (destX - d.magnetStartX) * t
+					local ny = d.magnetStartY + (destY - d.magnetStartY) * t + math.sin(t * math.pi) * 0.28
+					d.entity.TransformComponent.WorldPosition = Vector3(nx, ny, 0)
+					if t >= 1.0 then
+						if isvalid(d.entity) then d.entity:Destroy() end
+						table.insert(toRemove, dropId)
+					end
+				end
+			end
+		
+			for _, id in ipairs(toRemove) do
+				self.ActiveDrops[id] = nil
+			end
+		end
+		
+		-- 2.5) Update 3-Pet Multi-Pet Squad + 자석펫 (Magnet Pet) Vacuum Looting!
+		local lp = _UserService.LocalPlayer
+		if isvalid(lp) and isvalid(lp.CurrentMap) and isvalid(lp.TransformComponent) then
+			self:EnsureMultiPets(lp)
+			local myPos = lp.TransformComponent.WorldPosition
+			local myMap = lp.CurrentMap
+			local myMapName = lp.CurrentMapName
+			local ctrl = lp.PlayerControllerComponent
+			local lookDir = (isvalid(ctrl) and ctrl.LookDirectionX ~= 0) and ctrl.LookDirectionX or 1
+			local nowSec = _UtilLogic.ElapsedSeconds
+		
+			-- Gather all ready-to-loot idle drops (wait pickupReadyDelay so player clearly sees drops land first!)
+			local idleDrops = {}
+			if self.ActiveDrops then
+				for did, d in pairs(self.ActiveDrops) do
+					if d.state == "idle" and (d.idleElapsed or 0) >= (d.pickupReadyDelay or 0.55) and d.mapName == myMapName and isvalid(d.entity) then
+						table.insert(idleDrops, { id = did, drop = d })
+					end
+				end
+			end
+		
+			local claimedDrops = {}
+			local magnetRangeX = self.MagnetPetEnabled and 9.5 or 1.45
+			local magnetRangeY = self.MagnetPetEnabled and 5.2 or 1.35
+		
+			for idx, pet in ipairs(self.ActivePets or {}) do
+				if isvalid(pet.entity) and isvalid(pet.entity.TransformComponent) then
+					local def = pet.def
+					local desiredX = myPos.x + (def.followX * lookDir)
+					local desiredY = def.isFloating and (myPos.y + def.floatY) or self:FindGroundY(myMap, desiredX, myPos.y)
+		
+					-- Find nearest unclaimed drop for this pet to dash to / vacuum!
+					local bestEntry = nil
+					local bestDist = 999999
+					for _, entry in ipairs(idleDrops) do
+						if not claimedDrops[entry.id] and entry.drop.state == "idle" then
+							local dx = math.abs(entry.drop.landX - myPos.x)
+							local dy = math.abs(entry.drop.landY - myPos.y)
+							if dx <= 10.5 and dy <= 5.5 then
+								local pd = math.abs(entry.drop.landX - pet.x) + math.abs(entry.drop.landY - pet.y) * 1.4
+								if pd < bestDist then
+									bestDist = pd
+									bestEntry = entry
+								end
+							end
+						end
+					end
+		
+					if bestEntry then
+						claimedDrops[bestEntry.id] = true
+						local bd = bestEntry.drop
+						desiredX = bd.landX
+						desiredY = def.isFloating and (bd.landY + 0.35) or bd.landY
+		
+						-- Magnet Pet Vacuum: pull drops within wide 자석펫 range right into the pet!
+						local pdx = math.abs(bd.landX - pet.x)
+						local pdy = math.abs(bd.landY - pet.y)
+						local mdx = math.abs(bd.landX - myPos.x)
+						local mdy = math.abs(bd.landY - myPos.y)
+						if (pdx <= magnetRangeX and pdy <= magnetRangeY) or (self.MagnetPetEnabled and mdx <= magnetRangeX and mdy <= magnetRangeY) then
+							bd.state = "magnet"
+							bd.magnetElapsed = 0
+							bd.magnetStartX = bd.landX
+							bd.magnetStartY = bd.landY
+							bd.magnetPetIdx = idx
+							_SoundService:PlaySound(self.PickUpSoundRUID, 0.55)
+							_PlayerDataLogic:RequestPickupDrop(bestEntry.id)
+						end
+					end
+		
+					-- Smooth teleport catch-up if player jumped far away
+					local distToPlayer = math.abs(pet.x - myPos.x) + math.abs(pet.y - myPos.y)
+					if distToPlayer > 9.5 then
+						pet.x = myPos.x + (def.followX * lookDir)
+						pet.y = def.isFloating and (myPos.y + def.floatY) or self:FindGroundY(myMap, pet.x, myPos.y)
+					else
+						local dx = desiredX - pet.x
+						local dy = desiredY - pet.y
+						local moveStep = def.speed * delta
+						if math.abs(dx) > 0.08 then
+							local stepX = math.min(math.abs(dx), moveStep) * (dx >= 0 and 1 or -1)
+							pet.x = pet.x + stepX
+							pet.facing = (dx >= 0) and 1 or -1
+						end
+						local groundY = self:FindGroundY(myMap, pet.x, pet.y)
+						local hop = (math.abs(dx) > 0.18) and math.abs(math.sin(nowSec * 12.0 + pet.phase)) * 0.07 or 0.0
+						local gOff = def.groundOffset or -0.12
+						pet.y = pet.y + (groundY + gOff + hop - pet.y) * math.min(1.0, delta * 10.0)
+					end
+		
+					pet.entity.TransformComponent.WorldPosition = Vector3(pet.x, pet.y, 0)
+					if isvalid(pet.entity.SpriteRendererComponent) then
+						pet.entity.SpriteRendererComponent.FlipX = (pet.facing > 0)
+					end
+				end
+			end
+		
+			-- Extra sweeping magnet pass when many drops land simultaneously (e.g., AoE Shout/Raging Blow!)
+			if self.MagnetPetEnabled and #idleDrops > 3 then
+				local extraPulled = 0
+				for _, entry in ipairs(idleDrops) do
+					if extraPulled >= 6 then break end
+					local bd = entry.drop
+					if bd.state == "idle" then
+						local mdx = math.abs(bd.landX - myPos.x)
+						local mdy = math.abs(bd.landY - myPos.y)
+						if mdx <= magnetRangeX and mdy <= magnetRangeY then
+							bd.state = "magnet"
+							bd.magnetElapsed = 0
+							bd.magnetStartX = bd.landX
+							bd.magnetStartY = bd.landY
+							bd.magnetPetIdx = (extraPulled % 3) + 1
+							_PlayerDataLogic:RequestPickupDrop(entry.id)
+							extraPulled = extraPulled + 1
+						end
+					end
+				end
+			end
+		end
+		
+		-- 2.8) Update smooth client-side monster death fade-out animations!
+		if self.ActiveDeathFades and #self.ActiveDeathFades > 0 then
+			local i = 1
+			while i <= #self.ActiveDeathFades do
+				local df = self.ActiveDeathFades[i]
+				df.elapsed = df.elapsed + delta
+				if not isvalid(df.entity) or df.elapsed >= df.duration then
+					table.remove(self.ActiveDeathFades, i)
+				else
+					local u = math.min(1.0, df.elapsed / df.duration)
+					local alpha = math.max(0.0, 1.0 - (u * u))
+					if isvalid(df.entity.SpriteRendererComponent) then
+						df.entity.SpriteRendererComponent.Color = Color(1.0, 0.85, 0.85, alpha)
+					end
+					i = i + 1
+				end
+			end
+		end
+		
+		-- 3) Update classic MapleStory LEVEL UP! animations (golden pillar + official LEVEL UP! burst)
+		if self.ActiveLevelUps and #self.ActiveLevelUps > 0 then
+			local i = 1
+			while i <= #self.ActiveLevelUps do
+				local fx = self.ActiveLevelUps[i]
+				fx.elapsed = fx.elapsed + delta
+				local targetValid = isvalid(fx.target) and isvalid(fx.target.TransformComponent) and fx.target.CurrentMapName == fx.mapName
+				if fx.elapsed >= fx.duration or not targetValid then
+					if isvalid(fx.pillar) then fx.pillar:Destroy() end
+					if isvalid(fx.burst) then fx.burst:Destroy() end
+					table.remove(self.ActiveLevelUps, i)
+				else
+					local basePos = fx.target.TransformComponent.WorldPosition
+					local t = fx.elapsed
+		
+					-- Animate Layer 1: Golden Light Pillar (0.0s .. 1.65s)
+					if isvalid(fx.pillar) then
+						local pAlpha = 0.0
+						local pScaleX = 0.80
+						local pScaleY = 0.88
+						if t < 0.22 then
+							local u = t / 0.22
+							pAlpha = u * 0.95
+							pScaleX = 0.55 + 0.32 * u
+							pScaleY = 0.50 + 0.45 * u
+						elseif t < 1.05 then
+							pAlpha = 0.92 + math.sin(t * 24.0) * 0.08
+							pScaleX = 0.87 + math.sin(t * 16.0) * 0.04
+							pScaleY = 0.95
+						elseif t < 1.65 then
+							local u = (t - 1.05) / 0.60
+							pAlpha = math.max(0.0, 0.95 * (1.0 - u))
+							pScaleX = 0.87 * (1.0 - 0.25 * u)
+							pScaleY = 0.95 + 0.18 * u
+						end
+						if isvalid(fx.pillar.TransformComponent) then
+							fx.pillar.TransformComponent.WorldPosition = Vector3(basePos.x, basePos.y + 1.15, 0)
+							fx.pillar.TransformComponent.Scale = Vector3(pScaleX, pScaleY, 1)
+						end
+						if isvalid(fx.pillar.SpriteRendererComponent) then
+							local c = fx.isJobAdvance and Color(1.0, 0.92, 0.45, pAlpha) or Color(1.0, 1.0, 1.0, pAlpha)
+							fx.pillar.SpriteRendererComponent.Color = c
+						end
+					end
+		
+					-- Animate Layer 2: Official Classic LEVEL UP! frame sequence + floating banner
+					if isvalid(fx.burst) and fx.frames then
+						local curIdx = 1
+						for fi = 1, #fx.frames do
+							if t >= fx.frames[fi].t then
+								curIdx = fi
+							end
+						end
+						local fr = fx.frames[curIdx]
+						if curIdx ~= fx.lastFrameIdx then
+							fx.lastFrameIdx = curIdx
+							if isvalid(fx.burst.SpriteRendererComponent) then
+								fx.burst.SpriteRendererComponent.SpriteRUID = fr.ruid
+							end
+						end
+		
+						local extraRise = 0.0
+						local bAlpha = 1.0
+						if t > 1.20 then
+							extraRise = (t - 1.20) * 0.48
+						end
+						if t > 1.75 then
+							bAlpha = math.max(0.0, 1.0 - (t - 1.75) / 0.60)
+						end
+		
+						if isvalid(fx.burst.TransformComponent) then
+							fx.burst.TransformComponent.WorldPosition = Vector3(basePos.x, basePos.y + fr.yOff + extraRise, 0)
+							fx.burst.TransformComponent.Scale = Vector3(fr.scale, fr.scale, 1)
+						end
+						if isvalid(fx.burst.SpriteRendererComponent) then
+							fx.burst.SpriteRendererComponent.Color = Color(1.0, 1.0, 1.0, bAlpha)
+						end
+					end
+		
+					i = i + 1
+				end
+			end
+		end
+	end
+
+end

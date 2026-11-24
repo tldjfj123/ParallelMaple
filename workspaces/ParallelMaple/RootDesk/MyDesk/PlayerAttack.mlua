@@ -1,0 +1,213 @@
+@Component
+script PlayerAttack extends AttackComponent
+
+	@HideFromInspector
+	property any Shape = nil
+
+	@HideFromInspector
+	property any CooldownMap = nil
+
+	@HideFromInspector
+	property string ActiveSkillId = "power_strike"
+
+	@ExecSpace("ServerOnly")
+	method void OnBeginPlay()
+		_GameDataLogic:EnsureInit()
+		self.Shape = BoxShape(Vector2.zero, Vector2(2.2, 1.5), 0)
+		self.CooldownMap = {}
+	end
+
+	@ExecSpace("ServerOnly")
+	method string ResolveDefaultSkillId(string userId)
+		local profile = _PlayerDataLogic and _PlayerDataLogic:GetServerProfile(userId) or nil
+		local tier = (profile and profile.jobTier) or 0
+		if tier >= 4 then return "raging_blow"
+		elseif tier >= 2 then return "brandish"
+		elseif tier >= 1 then return "slash_blast"
+		end
+		return "power_strike"
+	end
+
+	@ExecSpace("ServerOnly")
+	method void CastSkill(string skillId, number lookDir)
+		_GameDataLogic:EnsureInit()
+		local transform = self.Entity.TransformComponent
+		if not isvalid(transform) then return end
+		
+		local userId = isvalid(self.Entity.PlayerComponent) and self.Entity.PlayerComponent.UserId or nil
+		if not skillId or skillId == "" then
+			skillId = self:ResolveDefaultSkillId(userId)
+		end
+		
+		local skill = _GameDataLogic:GetSkillInfo(skillId)
+		if not skill or skill.isPassive then return end
+		
+		-- Validate Hero job tier unlock
+		local profile = (userId and _PlayerDataLogic) and _PlayerDataLogic:GetServerProfile(userId) or nil
+		local curTier = (profile and profile.jobTier) or 0
+		if curTier < (skill.minTier or 0) then
+			return
+		end
+		
+		-- Server-side cooldown check
+		local now = _UtilLogic.ServerElapsedSeconds
+		if not self.CooldownMap then self.CooldownMap = {} end
+		local readyAt = self.CooldownMap[skill.id] or 0
+		if now < readyAt then return end
+		self.CooldownMap[skill.id] = now + (skill.cooldown or 0.5)
+		
+		local dir = (lookDir >= 0) and 1 or -1
+		local worldPosition = transform.WorldPosition
+		self.ActiveSkillId = skill.id
+		
+		self:PlaySkillCastVisual(skill.id, dir)
+		
+		self.Shape.Size = Vector2(skill.boxW, skill.boxH)
+		self.Shape.Position = Vector2(worldPosition.x + skill.offsetX * dir, worldPosition.y + skill.offsetY)
+		self:AttackFast(self.Shape, skill.id, CollisionGroups.Monster)
+	end
+
+	@ExecSpace("Multicast")
+	method void PlaySkillCastVisual(string skillId, number dir)
+		_GameDataLogic:EnsureInit()
+		local skill = _GameDataLogic:GetSkillInfo(skillId)
+		if not skill then return end
+		
+		if skill.castEffect and skill.castEffect ~= "" then
+			local sc = skill.effectScale or 1.0
+			local localPos = Vector3((skill.effectOffsetX or 0) * dir, skill.effectOffsetY or 0, 0)
+			local opts = { FlipX = (dir > 0) }
+			_EffectService:PlayEffectAttached(skill.castEffect, self.Entity, localPos, 0, Vector3(sc, sc, 1), false, opts)
+		end
+		
+		if skill.castSound and skill.castSound ~= "" then
+			_SoundService:PlaySound(skill.castSound, 0.72)
+		end
+		
+		if _CombatVisualLogic then
+			_CombatVisualLogic:PlayAvatarAttackMotion(self.Entity, skill.bodyAction or "swingO1")
+		end
+	end
+
+	@ExecSpace("Multicast")
+	method void PlaySkillHitVisual(string skillId, Vector3 startPos, Vector3 hitPos, number dir)
+		_GameDataLogic:EnsureInit()
+		local skill = _GameDataLogic:GetSkillInfo(skillId)
+		if not skill then return end
+		
+		if skill.hitEffect and skill.hitEffect ~= "" then
+			local opts = { FlipX = (dir > 0) }
+			_EffectService:PlayEffect(skill.hitEffect, self.Entity, hitPos, 0, Vector3(1, 1, 1), false, opts)
+		end
+		if skill.hitSound and skill.hitSound ~= "" then
+			_SoundService:PlaySound(skill.hitSound, 0.52)
+		end
+	end
+
+	@ExecSpace("ServerOnly")
+	method void AttackNormal()
+		local playerController = self.Entity.PlayerControllerComponent
+		local dir = isvalid(playerController) and playerController.LookDirectionX or 1
+		local userId = isvalid(self.Entity.PlayerComponent) and self.Entity.PlayerComponent.UserId or nil
+		local skillId = self:ResolveDefaultSkillId(userId)
+		self:CastSkill(skillId, dir)
+	end
+
+	@ExecSpace("Server")
+	method void RequestCastSkill(string skillId, number lookDir)
+		if isvalid(self.Entity.PlayerComponent) and senderUserId ~= self.Entity.PlayerComponent.UserId then
+			return
+		end
+		self:CastSkill(skillId, lookDir)
+	end
+
+	@ExecSpace("Server")
+	method void RequestAutoAttack(number lookDir)
+		if isvalid(self.Entity.PlayerComponent) and senderUserId ~= self.Entity.PlayerComponent.UserId then
+			return
+		end
+		local skillId = self:ResolveDefaultSkillId(senderUserId)
+		self:CastSkill(skillId, lookDir)
+	end
+
+	method void OnAttack(Entity defender)
+		if not self:IsServer() then return end
+		if isvalid(defender) and isvalid(defender.TransformComponent) then
+			local pos = defender.TransformComponent.WorldPosition
+			local myPos = isvalid(self.Entity.TransformComponent) and self.Entity.TransformComponent.WorldPosition or pos
+			local dir = (pos.x >= myPos.x) and 1 or -1
+			local handPos = Vector3(myPos.x + 0.35 * dir, myPos.y + 0.45, myPos.z)
+			self:PlaySkillHitVisual(self.ActiveSkillId, handPos, Vector3(pos.x, pos.y + 0.35, pos.z), dir)
+		
+			-- Build Hero Combo Attack stacks on hit (2nd+ job)
+			local userId = isvalid(self.Entity.PlayerComponent) and self.Entity.PlayerComponent.UserId or nil
+			if userId and _PlayerDataLogic then
+				_PlayerDataLogic:AddComboStack(userId)
+			end
+		end
+	end
+
+	method int32 GetDisplayHitCount(string attackInfo)
+		_GameDataLogic:EnsureInit()
+		local skill = _GameDataLogic:GetSkillInfo(attackInfo)
+		return (skill and skill.hitCount) or 1
+	end
+
+	method integer CalcDamage(Entity attacker, Entity defender, string attackInfo)
+		_GameDataLogic:EnsureInit()
+		local userId = isvalid(attacker) and isvalid(attacker.PlayerComponent) and attacker.PlayerComponent.UserId or nil
+		local stats = (userId and _PlayerDataLogic) and _PlayerDataLogic:GetServerStats(userId) or nil
+		local skill = _GameDataLogic:GetSkillInfo(attackInfo)
+		local skillMult = (skill and skill.dmgMult) or 1.0
+		local hitCount = (skill and skill.hitCount) or 1
+		
+		if not stats then
+			return math.floor(65 * skillMult * hitCount)
+		end
+		
+		local base = ((stats.totalMainStat * 4) * stats.totalAtt) / 135.0
+		local dmgMult = (1 + (stats.dmgPct or 0) / 100.0) * (1 + (stats.finalDmgPct or 0) / 100.0)
+		
+		-- Authentic MapleStory Starforce Field damage modifier!
+		local sfMult = 1.0
+		if isvalid(attacker) then
+			local mapInfo = _GameDataLogic:GetHuntingMapInfo(attacker.CurrentMapName)
+			if mapInfo and (mapInfo.reqStarforce or 0) > 0 then
+				if (stats.totalStarforce or 0) >= mapInfo.reqStarforce then
+					sfMult = 1.25
+				else
+					sfMult = 0.72
+				end
+			end
+		end
+		
+		local variance = 0.90 + _UtilLogic:RandomDouble() * 0.20
+		return math.max(25, math.floor(base * dmgMult * sfMult * skillMult * hitCount * variance))
+	end
+
+	method boolean CalcCritical(Entity attacker, Entity defender, string attackInfo)
+		_GameDataLogic:EnsureInit()
+		local userId = isvalid(attacker) and isvalid(attacker.PlayerComponent) and attacker.PlayerComponent.UserId or nil
+		local stats = (userId and _PlayerDataLogic) and _PlayerDataLogic:GetServerStats(userId) or nil
+		local skill = _GameDataLogic:GetSkillInfo(attackInfo)
+		local baseRate = stats and (stats.critRate / 100.0) or 0.25
+		local bonus = (skill and skill.bonusCrit) or 0
+		return _UtilLogic:RandomDouble() < math.min(1.0, baseRate + bonus)
+	end
+
+	method float GetCriticalDamageRate()
+		local userId = isvalid(self.Entity.PlayerComponent) and self.Entity.PlayerComponent.UserId or nil
+		local stats = (userId and _PlayerDataLogic) and _PlayerDataLogic:GetServerStats(userId) or nil
+		local critDmg = stats and (1.0 + stats.critDmgPct / 100.0) or 1.5
+		return critDmg
+	end
+
+	@ExecSpace("ServerOnly")
+	@EventSender("Self")
+	handler HandlePlayerActionEvent(PlayerActionEvent event)
+		if event.ActionName == "Attack" then
+			self:AttackNormal()
+		end
+	end
+
+end
