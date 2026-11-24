@@ -1,6 +1,11 @@
-# ParallelMaple UI 화면별 상세 명세서 (v2.0 — 빅뱅 스타일)
+# ParallelMaple UI 화면별 상세 명세서 (v2.1 — 빅뱅 HUD × 빅뱅 이후·현대 시스템 창)
 
-> **디자인 원칙:** 웹 대시보드 느낌을 배제하고, **2010년 빅뱅(Big Bang) 메이플스토리 원작 감성**(`StatusBar2` / `UIWindow2` / `QuickSlot`)을 유지합니다.  
+> **디자인 원칙 (옵션 A 확정 — 하이브리드 공식 에셋 조합):**
+> - **메인 인게임 하단 HUD**: 2010 빅뱅 향수를 살린 공식 **`StatusBar2` + `QuickSlot`** 유지
+> - **팝업 / 시스템 창 전체 (24슬롯 장비·인벤·스탯·스킬·상점·보스·오프라인)**: 빅뱅 이후~현대 메이플 공식 **`UIWindow4`** 프레임 적용
+> - **전용 특수 창**: 강화창은 **`StarForce` / `Enchant` / `Cube`**, 사냥터 길라잡이는 **`MapleGuide`** 공식 스프라이트 적용
+> - 모든 UI 에셋은 `msw-mcp` (`source: "maplestory"`) 공식 리소스에서 조회·검증된 RUID만 사용합니다.
+>
 > 참고 이미지: [main-ui.jpg](ui-references/main-ui.jpg), [ui-ref-2.jpg](ui-references/ui-ref-2.jpg), [ui-ref-3.jpg](ui-references/ui-ref-3.jpg)
 
 ---
@@ -38,8 +43,8 @@
 - **우측 하단 퀵슬롯 (`QuickSlot`)**: 정사각형 아이콘 칸 + 좌상단 노란 키캡(`1`~`5`, `F`, `P`) + 쿨타임 오버레이.
 - **우측 획득 로그**: 경험치/추가경험치/메소/아이템/장비 획득 실시간 스크롤 로그.
 
-### 화면 2. 장비창 (`E`) `[수정 필요 — 현대 메이플 24슬롯 개편]`
-- 밝은 실버 메탈릭 `UIWindow2` 프레임 + 파란 타이틀바(`EQUIPMENT`).
+### 화면 2. 장비창 (`E`) `[수정 필요 — 현대 메이플 24슬롯 · UIWindow4 개편]`
+- 빅뱅 이후~현대 공식 **`UIWindow4`** 장비창 프레임 적용.
 - **현대 메이플 정식 24부위 슬롯 격자 배치** (원작 장비창 5열 그리드 고증):
   - 무기/특수: `Weapon`, `SubWeapon`, `Emblem`
   - 방어구: `Hat`, `Top`, `Pants`, `Shoes`, `Gloves`, `Cape`, `Shoulder`
@@ -100,8 +105,16 @@
 
 ---
 
-## 3. 확보된 공식 MSW UI 에셋 RUID (재사용 레퍼런스)
+## 3. 확보된 공식 MSW UI 에셋 RUID (`msw-mcp` 조회 검증 완료)
 
+### 빅뱅 메인 HUD 에셋 (화면 1 전용)
 - **`StatusBar2` 프레임**: `dd68335c1561467e865c1eeffae7aca3` (`596×64`), `a5e788f2267f4047bf6bb060e2d43675` (`330×76`)
 - **`mainBar` 게이지 바**: `f894611453924630b612b98400b0c716` (`230×18`), `bf30a72620054abc844c91e0cbaecbd2` (`230×18`), `1d0c1de7241941f19b4ecc8ee299f59a` (`230×18`), `3b46e1d12b114c37bd4f641fb2f5ddf4` (`223×22`)
 - **`QuickSlot` 슬롯/프레임**: `43ff852114de4ce3b3a11974fc766058` (`31×29`), `fd09b3b2fc8a4c7fb4924510b35db45b` (`28×26`), `ba903f5ca2cb447fa27228a361a03ce3` (`34×20`)
+
+### 빅뱅 이후 ~ 현대 시스템 창 에셋 (화면 2~9 전용)
+- **`UIWindow4` 창 프레임 계열**: `60c1ffc0f74d4df7a0188b760554a07a`, `a0684f320e5441c3ae90bcf87982e5c2`, `b966be4c44dd492ba3b1d7e27a26df82`, `645876b5c1cb47b59019938a1df17f84` *(세부 창별 파츠는 UI 티켓 구현 시 `asset_search_resources`로 추가 조회)*
+- **`StarForce` 강화 UI 계열**: `229c3680c007474ebe9cfc23071f0a82`, `36371984448d49fe93da7c707258a0fa`, `1a87286576854e4c809f2f6673010f4a`
+- **`Enchant` 주문의 흔적 UI 계열**: `7582be28effe4ada9f04c3d703edd5c5`, `d6220cc462524c268fd6378baa86a7f7`, `b32fcbe1d60846e2acf4d4b964c54299`
+- **`Cube` 잠재능력 UI 계열**: `a46e1275a3f84185af95cedded603ece`, `edd7f6ed93ed4621b0ce987117d5dc9f`, `df260205bd3040deb3f5f6d54e7efcdf`
+- **`MapleGuide` 길라잡이 UI 계열**: `a5d17a600f8044c28707c67c061d0fe8`, `65783fc8ce90467fadcc000d82e8ddd1`, `7eca48ba265e4e31b739b38a19c4ea46`

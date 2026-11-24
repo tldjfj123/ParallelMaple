@@ -4,10 +4,10 @@
 - **선행 티켓:** `REQ-ARCH-02`, `REQ-SHOP-02` · **병렬 가능:** `REQ-SURV-01`, `REQ-SURV-03`, `REQ-HUNT-01`, `REQ-BOSS-03`과 병렬 가능
 
 ## 1. 목표 (User Story)
-충돌 방지를 위해 독립된 `ShopUIGroup.ui` 파일로 빅뱅 스타일 NPC 상점창(`B`)을 구현하여, 플레이어가 잡화/강화/보조무기, 펫/자석펫, 보스 코인 교환을 한 창에서 3개 탭으로 편리하게 이용한다.
+충돌 방지를 위해 독립된 `ShopUIGroup.ui` 파일로 빅뱅 이후~현대 공식 **`UIWindow4`** 스타일 NPC 상점창(`B`)을 구현하여, 플레이어가 잡화/강화/보조무기, 펫/자석펫, 보스 코인 교환을 한 창에서 3개 탭으로 편리하게 이용한다.
 
 ## 2. 상세 요구사항 (FR)
-1. 별도 UI 그룹 `workspaces/ParallelMaple/ui/ShopUIGroup.ui` 생성 (빅뱅 `UIWindow2` 프레임 스타일).
+1. 별도 UI 그룹 `workspaces/ParallelMaple/ui/ShopUIGroup.ui` 생성 (빅뱅 이후~현대 공식 **`UIWindow4`** 프레임 스타일).
 2. 신규 클라이언트 컨트롤러 `UIShopController` (`.mlua` + `.codeblock`):
    - 상단 3탭 전환: `[잡화/강화]` / `[펫 상점]` / `[보스 코인]`
    - 상단 보유 재화 바: 현재 탭에 맞춰 보유 메소 또는 5종 보스 코인 수량 표시

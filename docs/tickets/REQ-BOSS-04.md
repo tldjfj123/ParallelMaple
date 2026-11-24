@@ -7,7 +7,7 @@
 독립된 `BossUIGroup.ui` 파일로 보스 입장창(`T`), 보스전 상단 전용 HUD(보스 HP 바 / 남은 시간 / 데스카운트), 클리어·실패 결과 모달을 구현한다.
 
 ## 2. 상세 요구사항 (FR)
-1. 별도 UI 그룹 `workspaces/ParallelMaple/ui/BossUIGroup.ui` 생성.
+1. 별도 UI 그룹 `workspaces/ParallelMaple/ui/BossUIGroup.ui` 생성 (빅뱅 이후~현대 공식 **`UIWindow4`** 프레임 + 보스 HP 바 스타일).
 2. 신규 클라이언트 컨트롤러 `UIBossController` (`.mlua` + `.codeblock`):
    - **① 보스 입장 선택창 (`T`)**:
      - 5단계 보스 카드 리스트 (`자쿰 / 혼테일 / 카루타 / 스우 / 루시드`)

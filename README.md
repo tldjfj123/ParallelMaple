@@ -15,7 +15,7 @@ ParallelMaple/
 │   ├── 01-game-design.md            # 정식 게임 기획서 (비전, 코어 루프, As-Is vs To-Be)
 │   ├── 02-feature-specs.md          # 기능별 상세 명세서 (F1~F8 유저 플로우·규칙·AC)
 │   ├── 03-data-reference.md         # 마스터 데이터 & 검증된 MSW RUID 레퍼런스
-│   ├── 04-ui-spec.md                # 빅뱅 스타일 UI 화면별 명세 & 단축키
+│   ├── 04-ui-spec.md                # UI 화면별 명세 (빅뱅 StatusBar2 + 현대 UIWindow4/StarForce/MapleGuide)
 │   ├── 05-architecture.md           # 코드 아키텍처, RPC 계약, DB 스키마, 모듈 분리 설계
 │   ├── 06-roadmap.md                # 마일스톤 개요
 │   ├── 07-requirements-index.md     # v1.0 요구사항 명세 인덱스 (26개 티켓 · 5대 분류)

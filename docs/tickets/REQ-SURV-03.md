@@ -4,10 +4,10 @@
 - **선행 티켓:** `REQ-ARCH-02`, `REQ-SURV-02` · **병렬 가능:** `REQ-SHOP-03`, `REQ-BOSS-04`, `REQ-HUNT-01`과 병렬 가능
 
 ## 1. 목표 (User Story)
-유저가 1분~12시간 오프라인 후 재접속하면 빅뱅 스타일 정산 모달이 자동으로 뜨고, 경과 시간·기준 사냥터·획득 예정 보상을 확인한 뒤 `[보상 수령하기]` 버튼 한 번으로 정산받는다.
+유저가 1분~12시간 오프라인 후 재접속하면 빅뱅 이후~현대 공식 **`UIWindow4`** 스타일 정산 모달이 자동으로 뜨고, 경과 시간·기준 사냥터·획득 예정 보상을 확인한 뒤 `[보상 수령하기]` 버튼 한 번으로 정산받는다.
 
 ## 2. 상세 요구사항 (FR)
-1. 독립 UI 파일 `workspaces/ParallelMaple/ui/OfflinePopupGroup.ui` 생성 (`UIWindow2` 중앙 모달).
+1. 독립 UI 파일 `workspaces/ParallelMaple/ui/OfflinePopupGroup.ui` 생성 (공식 **`UIWindow4`** 중앙 모달).
 2. 신규 클라이언트 컨트롤러 `UIOfflinePopup` (`.mlua` + `.codeblock`):
    - `OfflineRewardLogic:OnShowOfflineRewardPopup(rewardJson)` 수신 시 팝업 활성화.
    - 표시 항목:
