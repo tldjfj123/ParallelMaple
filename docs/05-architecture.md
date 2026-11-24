@@ -57,9 +57,21 @@ local Profile = {
     inventory = {},                  -- EquipInstance[] (최대 60칸)
     codex = {},                      -- { [itemId] = true }
 
-    -- [v3 신규 필드]
+    -- [v3 신규 필드 — AP / 펫 / 사냥터 챕터·스테이지 / 오프라인]
+    baseStats = { str = 4, dex = 4, int = 4, luk = 4 },
+    unspentAp = 5,                   -- 레벨업당 +5, 수동/자동 배분
+    petCount = 1,                    -- 기본 1펫 시작 -> 상점에서 최대 3펫까지 확장
+    magnetPetUnlocked = false,       -- 상점에서 메소 구매 시 true (광역 자석펫 해금)
     autoPotionEnabled = true,
     autoPotionThreshold = 0.50,      -- HP 50% 이하 자동 사용
+    maxUnlockedChapter = 1,          -- 1 ~ 18 (현재 해금된 최고 챕터)
+    maxUnlockedStage = 1,            -- 최고 챕터 내 해금 스테이지 (1 ~ 5)
+    currentChapter = 1,              -- 현재 주차 중인 챕터
+    currentStage = 1,                -- 현재 주차 중인 스테이지 (1 ~ 5)
+    stageKillCount = 0,              -- 현재 스테이지 처치 누적 (3,000마리 시 돌파 버튼 활성)
+    eliteKillCounter = 0,            -- 100마리 처치 시 엘리트 몬스터 소환
+    treasureGauge = 0,               -- 사냥 도파민 상자 게이지 (0~100)
+    treasurePendingCount = 0,        -- 미수령 도파민 상자 개수 (최대 5)
     lastSaveUtcMs = 0,               -- DateTime.UtcNow.Elapsed (UTC ms)
     lastHuntingMapName = "HenesysHunt1",
     pendingOfflineReward = nil,      -- { elapsedSec, mapName, kills, exp, meso, trace, suspiciousCube } | nil
@@ -130,6 +142,16 @@ local SnapshotPayload = {
 - `PlayerAttack`: `RequestCastSkill(skillId, lookDir)`, `RequestAutoAttack(lookDir)`
 
 ### 3.2 신규 RPC (v1.0 구현 대상)
+- **`PlayerDataLogic` (AP 배분 — T1.1)**
+  - `@ExecSpace("Server") RequestAllocateAp(string statKey, integer amount)`
+  - `@ExecSpace("Server") RequestAutoAllocateAp()`
+  - `@ExecSpace("Server") RequestResetAp()`
+- **`HuntingInstanceLogic` (개인 사냥터 챕터·스테이지·이벤트 — T2.3)**
+  - `@ExecSpace("Server") RequestEnterHuntingStage(integer chapter, integer stage)`
+  - `@ExecSpace("Server") RequestChallengeChapterBoss()`
+  - `@ExecSpace("Server") RequestReturnTown()`
+  - `@ExecSpace("Server") RequestActivateRune(string runeId)`
+  - `@ExecSpace("Server") RequestClaimTreasureCard(integer cardIndex)`
 - **`InventoryLogic` (T1.3)**
   - `@ExecSpace("Server") RequestToggleLockItem(string uid)`
   - `@ExecSpace("Server") RequestSellEquip(string uid)`
@@ -137,6 +159,7 @@ local SnapshotPayload = {
   - `@ExecSpace("Server") RequestBulkDismantle(integer maxReqLevel)`
 - **`ShopLogic` (T1.4)**
   - `@ExecSpace("Server") RequestBuyShopItem(string shopItemId, integer qty)`
+  - `@ExecSpace("Server") RequestBuyPetUpgrade(string upgradeId)` *(`pet_slot_2` | `pet_slot_3` | `magnet_pet`)*
   - `@ExecSpace("Server") RequestExchangeBossItem(string bossShopItemId)`
 - **`SurvivalLogic` (T2.1)**
   - `@ExecSpace("Server") RequestSetAutoPotion(boolean enabled, number threshold)`
@@ -151,11 +174,15 @@ local SnapshotPayload = {
 
 ---
 
-## 4. 1인 보스 인스턴스 구현 전략 (MSW)
+## 4. 1인 개인 사냥터 & 1인 레이드 보스 인스턴스 구현 전략 (MSW `RoomService`)
 
-MSW에서 1인 개인 보스 인스턴스를 구현하는 권장 방식은 **`RoomService:CreateInstanceRoom`** (또는 인스턴스 맵 `InstanceMap` 스폰)입니다:
-1. `BossLogic:RequestEnterBoss(bossId)`에서 레벨·일일 클리어 횟수 검증 후, 해당 유저 전용 **1인 인스턴스 맵**(`BossArena_<bossId>`)으로 텔레포트.
-2. 인스턴스 진입 시 서버가 보스 엔티티(`BossMonster` 컴포넌트 부착) 스폰 + 600초 타이머 & 데스카운트 5 초기화.
-3. 보스 HP 변경/1초 틱마다 해당 유저에게 `OnBossStateUpdate` 전송.
-4. 클리어 / 실패 / 퇴장 / 유저 접속 종료 시 타이머 정리 및 보스 인스턴스 정리 후 `TileMapTemplate`(헤네시스)로 복귀.
-5. **KST 일일 초기화 유틸**: `kstDateStr` = `DateTime(DateTime.UtcNow.Elapsed + 9 * 3600 * 1000)`의 `YYYY-MM-DD` 문자열을 비교하여 날짜가 바뀌었으면 `profile.bossDailyClears = {}` 리셋.
+MSW 공식 `RoomService` + `InstanceMap` 제약사항을 반영한 안전한 인스턴스 구조입니다:
+1. **Static Room (공용 헤네시스 마을)**: `TileMapTemplate` 1개만 Static Map으로 유지.
+2. **개인 사냥터 룸 (`HuntRoom_<userId>`)**: 18개 사냥터 맵(`HenesysHunt1`, `Hunt01`~`Hunt17`)을 전부 `InstanceMap = true`로 설정하고, 유저가 사냥터 입장 시 1개의 개인 `InstanceRoom`에 묶어 생성합니다.
+   - 한 번 개인 사냥터 룸에 진입하면 18개 사냥터(Ch.1~Ch.18)끼리는 마을을 거치지 않고 `TeleportService`로 즉시 이동 가능!
+   - 스테이지(1~5) 변경, 챕터 보스(60초 타임어택), 엘리트 몬스터, 룬 소환이 모두 해당 유저 개인 공간에서만 깔끔하게 동작합니다.
+3. **1인 레이드 보스 룸 (`BossRoom_<userId>`)**: `Boss01_Zakum` ~ `Boss05_Lucid` 5개 보스 맵을 `InstanceMap = true`로 설정.
+   - *(주의: MSW 제약상 `HuntRoom` → `BossRoom` 직접 이동은 불가하므로, `BossLogic`이 마을 Static Map 경유 또는 개인 사냥터 룸에 보스 맵 5개까지 함께 포함하여 원스톱 이동되도록 설계할 수 있습니다. **권장: 개인 룸 1개에 사냥터 18 + 보스 5를 함께 포함하거나, `SaveProfileAsync` 후 안전 전이!**)*
+4. **Static ↔ Instance 데이터 동기화 필수 규칙**:
+   - MSW에서 Static Room과 Instance Room은 서버 메모리가 분리되어 있으므로, 방 이동 직전에 반드시 **`SaveProfileAsync` 완료 콜백 이후 `MoveUsersToInstanceRoom` / `MoveUsersToStaticRoom`**을 호출하고, 도착 방에서 `LoadProfileForUser`로 최신 데이터를 불러옵니다.
+5. **KST 일일 초기화 유틸**: `kstDateStr` = `DateTime(DateTime.UtcNow.Elapsed + 9 * 3600 * 1000)`의 `YYYY-MM-DD` 문자열 비교.
